@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>PreviewRenderer — Manual Test</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #1a1a2e; color: #ccc; font-family: monospace; overflow: hidden; }
+    #viewport { width: 100vw; height: 100vh; }
+    #info {
+      position: absolute; top: 12px; left: 12px;
+      background: rgba(0,0,0,0.55); padding: 10px 14px; border-radius: 6px;
+      font-size: 13px; line-height: 1.7; pointer-events: none;
+    }
+    #controls-hint {
+      position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(0,0,0,0.55); padding: 8px 16px; border-radius: 6px;
+      font-size: 12px; opacity: 0.8;
+    }
+  </style>
+</head>
+<body>
+  <div id="viewport"></div>
+  <div id="info">Loading…</div>
+  <div id="controls-hint">
+    Left-drag: rotate &nbsp;|&nbsp; Right-drag / Ctrl+drag: pan &nbsp;|&nbsp; Scroll: zoom
+  </div>
+
+  <script type="module">
+    import { generate }         from '/src/modules/meshGenerator.js'
+    import { PreviewRenderer }  from '/src/modules/previewRenderer.js'
+
+    const PARAMS = {
+      widthMM:      150,
+      heightMM:     100,
+      minThickness: 0.8,
+      maxThickness: 3.0,
+      borderWidthMM: 4,
+      invertHeight: false,
+    }
+
+    // Synthetic heightmap: circular gradient (bright centre → dark edges)
+    const COLS = 60, ROWS = 40
+    const hm = Array.from({ length: ROWS }, (_, r) =>
+      Array.from({ length: COLS }, (_, c) => {
+        const dx = (c / (COLS - 1)) - 0.5
+        const dy = (r / (ROWS - 1)) - 0.5
+        return Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) * 2.2)
+      })
+    )
+
+    const mesh = generate(hm, PARAMS)
+
+    const renderer = new PreviewRenderer()
+    renderer.init(document.getElementById('viewport'))
+    renderer.updateMesh(mesh)
+
+    const info = document.getElementById('info')
+    info.innerHTML = [
+      `<b>PreviewRenderer — Manual Test</b>`,
+      `Heightmap: ${COLS} × ${ROWS} (circular gradient)`,
+      `Vertices: ${mesh.vertices.length / 3}`,
+      `Triangles: ${mesh.faces.length / 3}`,
+      `Width: ${PARAMS.widthMM}mm &nbsp; Height: ${PARAMS.heightMM}mm`,
+      `Thickness: ${PARAMS.minThickness}–${PARAMS.maxThickness}mm &nbsp; Border: ${PARAMS.borderWidthMM}mm`,
+    ].join('<br>')
+
+    // Handle resize
+    window.addEventListener('resize', () => {
+      renderer.resize(window.innerWidth, window.innerHeight)
+    })
+  </script>
+</body>
+</html>
