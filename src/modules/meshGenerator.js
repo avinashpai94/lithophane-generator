@@ -1,12 +1,19 @@
 /**
- * MeshGenerator — converts a heightmap + parameters into a triangle mesh.
+ * MeshGenerator — converts a heightmap + parameters into a watertight triangle mesh.
  *
- * Phase 3a: top surface (relief grid) only.
- * Phase 3b will add: bottom surface + side walls.
- * Phase 3c will add: border ring + shared-vertex manifold connection.
+ * Vertex buffer layout:
+ *   [0,          rows*cols)   — top surface, row-major (r*cols+c)
+ *   [rows*cols,  +4)          — bottom corners at Z=0: BL, BR, TL, TR
+ *   [rows*cols+4,+4)          — outer border corners at Z=maxThickness: BL, BR, TL, TR
  *
- * @param {number[][]} heightmap - row-major 2D array of brightness values [0.0, 1.0]
- * @param {object} params - MeshParams
+ * Face topology (all CCW winding, outward normals):
+ *   Top surface    — (rows-1)*(cols-1)*2 triangles, +Z normals
+ *   Bottom face    — 2 triangles, -Z normals
+ *   Border strips  — 4 fan strips connecting relief outer edge to outer corners, +Z normals
+ *   Side walls     — 4 quads (8 triangles) connecting outer corners to bottom corners
+ *
+ * @param {number[][]} heightmap - row-major brightness values [0.0, 1.0]
+ * @param {object} params
  * @param {number} params.widthMM
  * @param {number} params.heightMM
  * @param {number} params.minThickness
@@ -21,8 +28,7 @@ export function generate(heightmap, params) {
   const rows = heightmap.length
   const cols = heightmap[0].length
 
-  // Relief area is inset by the border on all sides.
-  // In 3c, border vertices will fill the outer ring.
+  // Relief area is inset by border on all sides.
   const x0 = borderWidthMM
   const x1 = widthMM - borderWidthMM
   const y0 = borderWidthMM
@@ -30,60 +36,127 @@ export function generate(heightmap, params) {
   const reliefW = x1 - x0
   const reliefH = y1 - y0
 
-  // --- Top surface vertices (row-major: index = row * cols + col) ---
-  const topVertexCount = rows * cols
-  const vertices = new Float32Array(topVertexCount * 3)
+  // ── Vertex buffer ────────────────────────────────────────────────────────
+  const topCount  = rows * cols
+  const botOffset = topCount          // bottom corners start here
+  const outOffset = topCount + 4      // outer border corners start here
+  const totalVerts = topCount + 8
 
+  const vertices = new Float32Array(totalVerts * 3)
+
+  // Top surface (row-major)
   for (let row = 0; row < rows; row++) {
     for (let col = 0; col < cols; col++) {
       const brightness = heightmap[row][col]
-      // Standard lithophane (invertHeight=false): dark (0.0) → maxThickness (blocks light)
-      //                                           light (1.0) → minThickness (transmits light)
-      // Inverted (invertHeight=true): mapping reversed.
+      // invertHeight=false (standard lithophane): dark→maxThickness, light→minThickness
+      // invertHeight=true: reversed
       const t = invertHeight ? brightness : 1.0 - brightness
       const z = minThickness + t * (maxThickness - minThickness)
-
       const x = cols > 1 ? x0 + (col / (cols - 1)) * reliefW : x0 + reliefW / 2
       const y = rows > 1 ? y0 + (row / (rows - 1)) * reliefH : y0 + reliefH / 2
-
       const vi = (row * cols + col) * 3
-      vertices[vi]     = x
-      vertices[vi + 1] = y
-      vertices[vi + 2] = z
+      vertices[vi] = x; vertices[vi + 1] = y; vertices[vi + 2] = z
     }
   }
 
-  // --- Top surface faces (two CCW triangles per quad cell) ---
-  // For a quad with corners A(col,row), B(col+1,row), C(col,row+1), D(col+1,row+1):
-  //   Triangle 1: A, B, D  →  (B-A)×(D-A) has +Z component  ✓
-  //   Triangle 2: A, D, C  →  (D-A)×(C-A) has +Z component  ✓
-  const quadCount = (cols - 1) * (rows - 1)
-  const faces = new Uint32Array(quadCount * 6)
-  let fi = 0
+  // Bottom corners (Z=0): BL, BR, TL, TR
+  const botData = [0, 0, 0,  widthMM, 0, 0,  0, heightMM, 0,  widthMM, heightMM, 0]
+  for (let i = 0; i < 12; i++) vertices[botOffset * 3 + i] = botData[i]
 
+  // Outer border corners (Z=maxThickness): BL, BR, TL, TR
+  const outData = [
+    0,       0,        maxThickness,
+    widthMM, 0,        maxThickness,
+    0,       heightMM, maxThickness,
+    widthMM, heightMM, maxThickness,
+  ]
+  for (let i = 0; i < 12; i++) vertices[outOffset * 3 + i] = outData[i]
+
+  // ── Named vertex indices ─────────────────────────────────────────────────
+  const rv     = (r, c) => r * cols + c   // top surface vertex
+  const BL_bot = botOffset + 0, BR_bot = botOffset + 1
+  const TL_bot = botOffset + 2, TR_bot = botOffset + 3
+  const BL_out = outOffset + 0, BR_out = outOffset + 1
+  const TL_out = outOffset + 2, TR_out = outOffset + 3
+
+  // ── Face buffer (flat array, 3 indices per triangle) ─────────────────────
+  const f = []
+
+  // Top surface: two CCW triangles per quad cell
+  // A,B,D winding: (B-A)×(D-A) has +Z  ✓
+  // A,D,C winding: (D-A)×(C-A) has +Z  ✓
   for (let row = 0; row < rows - 1; row++) {
     for (let col = 0; col < cols - 1; col++) {
-      const a = row * cols + col
-      const b = row * cols + (col + 1)
-      const c = (row + 1) * cols + col
-      const d = (row + 1) * cols + (col + 1)
-
-      faces[fi++] = a; faces[fi++] = b; faces[fi++] = d  // Triangle 1
-      faces[fi++] = a; faces[fi++] = d; faces[fi++] = c  // Triangle 2
+      const a = rv(row, col),     b = rv(row, col + 1)
+      const c = rv(row + 1, col), d = rv(row + 1, col + 1)
+      f.push(a, b, d,  a, d, c)
     }
   }
 
-  const normals = computeVertexNormals(vertices, faces, topVertexCount)
+  // Bottom face: two triangles, -Z normals
+  // (TL_bot-BL_bot)×(BR_bot-BL_bot) = (0,H,0)×(W,0,0) = (0,0,-WH) → -Z  ✓
+  f.push(BL_bot, TL_bot, BR_bot,  BR_bot, TL_bot, TR_bot)
+
+  // ── Border strip fan triangulation ───────────────────────────────────────
+  //
+  // Each strip connects N inner perimeter vertices to 2 outer corner vertices.
+  // mid = ⌊(N-1)/2⌋ — the "bridge" triangle index containing the L–R outer edge.
+  //
+  // 'bottomRight' = true  → outer corner sits between inner vertices in the winding:
+  //   (inner[i], oL, inner[i+1])  for left fan
+  //   (inner[mid], oL, oR)        bridge
+  //   (inner[i], oR, inner[i+1]) for right fan
+  //
+  // 'bottomRight' = false → outer corner sits after the inner pair:
+  //   (inner[i], inner[i+1], oL)  for left fan
+  //   (inner[mid], oR, oL)        bridge
+  //   (inner[i], inner[i+1], oR) for right fan
+  //
+  // The winding difference comes from whether the outer is at -Y/-X (bottom/left)
+  // or +Y/+X (top/right) relative to the inner edge.
+  const strip = (inner, oL, oR, bottomRight) => {
+    const N   = inner.length
+    const mid = Math.floor((N - 1) / 2)
+    if (bottomRight) {
+      for (let i = 0; i < mid; i++)     f.push(inner[i], oL, inner[i + 1])
+      f.push(inner[mid], oL, oR)
+      for (let i = mid; i < N - 1; i++) f.push(inner[i], oR, inner[i + 1])
+    } else {
+      for (let i = 0; i < mid; i++)     f.push(inner[i], inner[i + 1], oL)
+      f.push(inner[mid], oR, oL)
+      for (let i = mid; i < N - 1; i++) f.push(inner[i], inner[i + 1], oR)
+    }
+  }
+
+  const botRow = Array.from({ length: cols }, (_, c) => rv(0,        c))
+  const rgtCol = Array.from({ length: rows }, (_, r) => rv(r,        cols - 1))
+  const topRow = Array.from({ length: cols }, (_, c) => rv(rows - 1, c))
+  const lftCol = Array.from({ length: rows }, (_, r) => rv(r,        0))
+
+  strip(botRow, BL_out, BR_out, true)   // bottom strip: outer at -Y
+  strip(rgtCol, BR_out, TR_out, true)   // right strip:  outer at +X
+  strip(topRow, TL_out, TR_out, false)  // top strip:    outer at +Y
+  strip(lftCol, BL_out, TL_out, false)  // left strip:   outer at -X
+
+  // ── Side walls ───────────────────────────────────────────────────────────
+  // Each wall is one quad (2 triangles) connecting outer corners to bottom corners.
+  // Verified normals (cross product of two edges):
+  //   Bottom: -Y  Right: +X  Top: +Y  Left: -X
+  f.push(
+    BL_out, BL_bot, BR_out,  BL_bot, BR_bot, BR_out,  // bottom wall (-Y)
+    BR_out, BR_bot, TR_out,  BR_bot, TR_bot, TR_out,  // right wall  (+X)
+    TR_out, TR_bot, TL_out,  TR_bot, TL_bot, TL_out,  // top wall    (+Y)
+    TL_out, TL_bot, BL_out,  TL_bot, BL_bot, BL_out,  // left wall   (-X)
+  )
+
+  const faces   = new Uint32Array(f)
+  const normals = computeVertexNormals(vertices, faces, totalVerts)
 
   return { vertices, faces, normals }
 }
 
 /**
- * Compute per-vertex normals by averaging adjacent face normals.
- * @param {Float32Array} vertices
- * @param {Uint32Array} faces
- * @param {number} vertexCount
- * @returns {Float32Array}
+ * Compute per-vertex normals by accumulating and averaging adjacent face normals.
  */
 function computeVertexNormals(vertices, faces, vertexCount) {
   const normals = new Float32Array(vertexCount * 3)
@@ -110,12 +183,10 @@ function computeVertexNormals(vertices, faces, vertexCount) {
   }
 
   for (let i = 0; i < vertexCount; i++) {
-    const ni = i * 3
+    const ni  = i * 3
     const len = Math.sqrt(normals[ni] ** 2 + normals[ni + 1] ** 2 + normals[ni + 2] ** 2)
     if (len > 0) {
-      normals[ni]     /= len
-      normals[ni + 1] /= len
-      normals[ni + 2] /= len
+      normals[ni] /= len; normals[ni + 1] /= len; normals[ni + 2] /= len
     }
   }
 
