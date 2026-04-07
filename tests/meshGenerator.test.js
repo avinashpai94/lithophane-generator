@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { generate } from '../src/modules/meshGenerator.js'
+import { generate, generateTwoColor } from '../src/modules/meshGenerator.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -206,6 +206,104 @@ describe('MeshGenerator — Phase 3c (border + side walls + watertight)', () => 
     expect(maxX).toBeCloseTo(BASE.widthMM, 5)
     expect(minY).toBeCloseTo(0, 5)
     expect(maxY).toBeCloseTo(BASE.heightMM, 5)
+  })
+
+})
+
+// ---------------------------------------------------------------------------
+// Phase 8A tests — generateTwoColor()
+// ---------------------------------------------------------------------------
+
+const TWO_COLOR_PARAMS = {
+  widthMM: 40,
+  heightMM: 30,
+  baseThicknessMM: 0.6,
+  reliefHeightMM: 1.2,
+  borderWidthMM: 4,
+  invertHeight: false,
+}
+
+function edgeMapWatertight(faces) {
+  const edgeCount = new Map()
+  const key = (a, b) => a < b ? `${a}:${b}` : `${b}:${a}`
+  for (let i = 0; i < faces.length; i += 3) {
+    const a = faces[i], b = faces[i + 1], c = faces[i + 2]
+    for (const [u, v] of [[a, b], [b, c], [c, a]]) {
+      const k = key(u, v)
+      edgeCount.set(k, (edgeCount.get(k) ?? 0) + 1)
+    }
+  }
+  for (const [k, count] of edgeCount) {
+    if (count !== 2) return { ok: false, edge: k, count }
+  }
+  return { ok: true }
+}
+
+describe('MeshGenerator — Phase 8A (generateTwoColor)', () => {
+
+  // Test 8A-1
+  it('baseMesh is watertight (every edge appears exactly twice)', () => {
+    const hm = makeHeightmap(4, 3)
+    const { baseMesh } = generateTwoColor(hm, TWO_COLOR_PARAMS)
+    const result = edgeMapWatertight(baseMesh.faces)
+    expect(result.ok, `edge ${result.edge} appears ${result.count} times`).toBe(true)
+  })
+
+  // Test 8A-2
+  it('reliefMesh is watertight (every edge appears exactly twice)', () => {
+    const hm = makeHeightmap(4, 3)
+    const { reliefMesh } = generateTwoColor(hm, TWO_COLOR_PARAMS)
+    const result = edgeMapWatertight(reliefMesh.faces)
+    expect(result.ok, `edge ${result.edge} appears ${result.count} times`).toBe(true)
+  })
+
+  // Test 8A-3
+  it('baseMesh Z range is [0, baseThicknessMM]', () => {
+    const hm = makeHeightmap(4, 3)
+    const { baseMesh } = generateTwoColor(hm, TWO_COLOR_PARAMS)
+    const { vertices } = baseMesh
+    let minZ = Infinity, maxZ = -Infinity
+    for (let i = 2; i < vertices.length; i += 3) {
+      minZ = Math.min(minZ, vertices[i])
+      maxZ = Math.max(maxZ, vertices[i])
+    }
+    expect(minZ).toBeCloseTo(0, 5)
+    expect(maxZ).toBeCloseTo(TWO_COLOR_PARAMS.baseThicknessMM, 5)
+  })
+
+  // Test 8A-4
+  it('reliefMesh Z range is [baseThicknessMM, baseThicknessMM + reliefHeightMM]', () => {
+    const hm = makeHeightmap(4, 3)
+    const { reliefMesh } = generateTwoColor(hm, TWO_COLOR_PARAMS)
+    const { vertices } = reliefMesh
+    const { baseThicknessMM, reliefHeightMM } = TWO_COLOR_PARAMS
+    let minZ = Infinity, maxZ = -Infinity
+    for (let i = 2; i < vertices.length; i += 3) {
+      minZ = Math.min(minZ, vertices[i])
+      maxZ = Math.max(maxZ, vertices[i])
+    }
+    expect(minZ).toBeCloseTo(baseThicknessMM, 5)
+    expect(maxZ).toBeCloseTo(baseThicknessMM + reliefHeightMM, 5)
+  })
+
+  // Test 8A-5
+  it('both meshes share the same XY footprint [0, widthMM] × [0, heightMM]', () => {
+    const hm = makeHeightmap(4, 3)
+    const { baseMesh, reliefMesh } = generateTwoColor(hm, TWO_COLOR_PARAMS)
+    for (const { vertices } of [baseMesh, reliefMesh]) {
+      let minX = Infinity, maxX = -Infinity
+      let minY = Infinity, maxY = -Infinity
+      for (let i = 0; i < vertices.length; i += 3) {
+        minX = Math.min(minX, vertices[i])
+        maxX = Math.max(maxX, vertices[i])
+        minY = Math.min(minY, vertices[i + 1])
+        maxY = Math.max(maxY, vertices[i + 1])
+      }
+      expect(minX).toBeCloseTo(0, 5)
+      expect(maxX).toBeCloseTo(TWO_COLOR_PARAMS.widthMM, 5)
+      expect(minY).toBeCloseTo(0, 5)
+      expect(maxY).toBeCloseTo(TWO_COLOR_PARAMS.heightMM, 5)
+    }
   })
 
 })

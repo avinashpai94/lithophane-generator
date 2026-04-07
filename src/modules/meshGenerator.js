@@ -23,7 +23,7 @@
  * @returns {{ vertices: Float32Array, faces: Uint32Array, normals: Float32Array }}
  */
 export function generate(heightmap, params) {
-  const { widthMM, heightMM, minThickness, maxThickness, borderWidthMM, invertHeight } = params
+  const { widthMM, heightMM, minThickness, maxThickness, borderWidthMM, invertHeight, floorZ = 0 } = params
 
   const rows = heightmap.length
   const cols = heightmap[0].length
@@ -59,8 +59,8 @@ export function generate(heightmap, params) {
     }
   }
 
-  // Bottom corners (Z=0): BL, BR, TL, TR
-  const botData = [0, 0, 0,  widthMM, 0, 0,  0, heightMM, 0,  widthMM, heightMM, 0]
+  // Bottom corners (Z=floorZ): BL, BR, TL, TR
+  const botData = [0, 0, floorZ,  widthMM, 0, floorZ,  0, heightMM, floorZ,  widthMM, heightMM, floorZ]
   for (let i = 0; i < 12; i++) vertices[botOffset * 3 + i] = botData[i]
 
   // Outer border corners (Z=maxThickness): BL, BR, TL, TR
@@ -152,6 +152,86 @@ export function generate(heightmap, params) {
   const faces   = new Uint32Array(f)
   const normals = computeVertexNormals(vertices, faces, totalVerts)
 
+  return { vertices, faces, normals }
+}
+
+/**
+ * Generate two separate watertight meshes for 2-color/multi-material printing.
+ *
+ * baseMesh:   flat box covering the full W × H footprint at baseThicknessMM.
+ *             This is printed in the background color.
+ * reliefMesh: the image relief layer sitting on top of the base plate.
+ *             Floor at Z = baseThicknessMM, peaks at baseThicknessMM + reliefHeightMM.
+ *             This is printed in the foreground color.
+ *
+ * The two meshes share the same XY footprint but have non-overlapping Z ranges:
+ *   baseMesh:   Z ∈ [0, baseThicknessMM]
+ *   reliefMesh: Z ∈ [baseThicknessMM, baseThicknessMM + reliefHeightMM]
+ *
+ * @param {number[][]} heightmap
+ * @param {{
+ *   widthMM: number,
+ *   heightMM: number,
+ *   baseThicknessMM: number,
+ *   reliefHeightMM: number,
+ *   borderWidthMM: number,
+ *   invertHeight: boolean,
+ * }} params
+ * @returns {{ baseMesh: MeshData, reliefMesh: MeshData }}
+ */
+export function generateTwoColor(heightmap, params) {
+  const { widthMM, heightMM, baseThicknessMM, reliefHeightMM, borderWidthMM, invertHeight } = params
+
+  return {
+    baseMesh:   _buildBaseMesh(widthMM, heightMM, baseThicknessMM),
+    reliefMesh: generate(heightmap, {
+      widthMM,
+      heightMM,
+      minThickness: baseThicknessMM,
+      maxThickness: baseThicknessMM + reliefHeightMM,
+      borderWidthMM,
+      invertHeight,
+      floorZ: baseThicknessMM,
+    }),
+  }
+}
+
+/**
+ * Build a simple flat watertight box: W × H × thickness, origin at (0,0,0).
+ * 8 vertices, 12 triangles.
+ */
+function _buildBaseMesh(widthMM, heightMM, thickness) {
+  // Vertices: 4 top corners (Z=thickness) + 4 bottom corners (Z=0)
+  // Index:  0=BL_top, 1=BR_top, 2=TL_top, 3=TR_top
+  //         4=BL_bot, 5=BR_bot, 6=TL_bot, 7=TR_bot
+  const vertices = new Float32Array([
+    0,       0,        thickness,   // 0 BL_top
+    widthMM, 0,        thickness,   // 1 BR_top
+    0,       heightMM, thickness,   // 2 TL_top
+    widthMM, heightMM, thickness,   // 3 TR_top
+    0,       0,        0,           // 4 BL_bot
+    widthMM, 0,        0,           // 5 BR_bot
+    0,       heightMM, 0,           // 6 TL_bot
+    widthMM, heightMM, 0,           // 7 TR_bot
+  ])
+
+  // All CCW winding, outward normals
+  const faces = new Uint32Array([
+    // Top face (+Z)
+    0, 1, 3,   0, 3, 2,
+    // Bottom face (-Z)
+    4, 6, 5,   5, 6, 7,
+    // Front wall (-Y)
+    0, 4, 1,   1, 4, 5,
+    // Back wall (+Y)
+    3, 7, 2,   2, 7, 6,
+    // Right wall (+X)
+    1, 5, 3,   3, 5, 7,
+    // Left wall (-X)
+    0, 2, 4,   4, 2, 6,
+  ])
+
+  const normals = computeVertexNormals(vertices, faces, 8)
   return { vertices, faces, normals }
 }
 
