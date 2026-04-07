@@ -3,6 +3,7 @@ import { processImage, getGrayscalePreview } from './modules/imageProcessor.js'
 import { generate }      from './modules/meshGenerator.js'
 import { exportBinary }  from './modules/stlExporter.js'
 import { PreviewRenderer } from './modules/previewRenderer.js'
+import { useHistory }    from './hooks/useHistory.js'
 import ImageUploader  from './components/ImageUploader.jsx'
 import ParameterPanel from './components/ParameterPanel.jsx'
 import PreviewPanel   from './components/PreviewPanel.jsx'
@@ -25,8 +26,7 @@ export default function App() {
   const [params,        setParams]        = useState(DEFAULT_PARAMS)
   const [meshData,      setMeshData]      = useState(null)
 
-  // Track what was last applied so we can skip pipeline stages that haven't changed
-  const lastApplied = useRef(null)  // { params, heightmap }
+  const history = useHistory(20)
 
   const previewContainerRef = useRef(null)
   const rendererRef         = useRef(null)
@@ -55,7 +55,7 @@ export default function App() {
     setSourceImage(img)
     setGrayscalePreview(getGrayscalePreview(img, 300))
     setMeshData(null)
-    lastApplied.current = null
+    history.clear()
     rendererRef.current?.resetFit()
 
     // Sync heightMM to image aspect ratio (keep widthMM, update height)
@@ -74,11 +74,9 @@ export default function App() {
     const cols = Math.max(2, Math.round(params.widthMM  / params.pixelPitchMM))
     const rows = Math.max(2, Math.round(params.heightMM / params.pixelPitchMM))
 
-    const prev = lastApplied.current
+    const prev = history.current
 
-    // Decide whether ImageProcessor needs to re-run.
-    // Skip it when only physical dimensions changed with aspect locked
-    // (the heightmap content is the same; MeshGenerator uses widthMM/heightMM for physical scale).
+    // Skip ImageProcessor when only physical dimensions changed with aspect locked
     const needsImageProc = !prev ||
       prev.params.pixelPitchMM !== params.pixelPitchMM ||
       (!params.lockAspectRatio && (
@@ -91,20 +89,61 @@ export default function App() {
       : prev.heightmap
 
     const meshParams = {
-      widthMM:      params.widthMM,
-      heightMM:     params.heightMM,
-      minThickness: params.minThickness,
-      maxThickness: params.maxThickness,
+      widthMM:       params.widthMM,
+      heightMM:      params.heightMM,
+      minThickness:  params.minThickness,
+      maxThickness:  params.maxThickness,
       borderWidthMM: params.borderWidthMM,
       invertHeight:  params.invertHeight,
     }
 
     const mesh = generate(heightmap, meshParams)
     setMeshData(mesh)
-    lastApplied.current = { params: { ...params }, heightmap }
+    history.push({ params: { ...params }, heightmap })
 
     rendererRef.current?.updateMesh(mesh)
-  }, [sourceImage, params])
+  }, [sourceImage, params, history])
+
+  // ── Undo / Redo ──────────────────────────────────────────────────────────
+  const restoreSnapshot = useCallback((snapshot) => {
+    if (!snapshot) return
+    setParams(snapshot.params)
+    const mesh = generate(snapshot.heightmap, {
+      widthMM:       snapshot.params.widthMM,
+      heightMM:      snapshot.params.heightMM,
+      minThickness:  snapshot.params.minThickness,
+      maxThickness:  snapshot.params.maxThickness,
+      borderWidthMM: snapshot.params.borderWidthMM,
+      invertHeight:  snapshot.params.invertHeight,
+    })
+    setMeshData(mesh)
+    rendererRef.current?.updateMesh(mesh)
+  }, [])
+
+  const handleUndo = useCallback(() => {
+    const snap = history.prevSnapshot
+    history.undo()
+    restoreSnapshot(snap)
+  }, [history, restoreSnapshot])
+
+  const handleRedo = useCallback(() => {
+    const snap = history.nextSnapshot
+    history.redo()
+    restoreSnapshot(snap)
+  }, [history, restoreSnapshot])
+
+  // Keyboard shortcuts — don't fire when typing in an input
+  useEffect(() => {
+    function onKey(e) {
+      const tag = document.activeElement?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && e.shiftKey && e.key === 'z') { e.preventDefault(); handleRedo() }
+      else if (mod && e.key === 'z')           { e.preventDefault(); handleUndo() }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [handleUndo, handleRedo])
 
   // ── STL download ─────────────────────────────────────────────────────────
   const handleDownload = useCallback(() => {
@@ -124,9 +163,13 @@ export default function App() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <Toolbar
-        canUndo={false} canRedo={false}   // Phase 7
+        onUndo={handleUndo}   canUndo={history.canUndo}
+        onRedo={handleRedo}   canRedo={history.canRedo}
         onDownload={handleDownload} canDownload={!!meshData}
         stats={stats}
+        historyPos={history.position.total > 0
+          ? `${history.position.current + 1}/${history.position.total}`
+          : null}
       />
 
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>

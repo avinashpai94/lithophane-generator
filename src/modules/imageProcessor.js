@@ -22,7 +22,9 @@ export function processImage(img, targetCols, targetRows) {
   const ctx = canvas.getContext('2d')
   ctx.drawImage(img, 0, 0, targetCols, targetRows)
   const { data } = ctx.getImageData(0, 0, targetCols, targetRows)
-  return _pixelsToHeightmap(data, targetCols, targetRows)
+  // Reverse row order: canvas row 0 = top of image, but mesh row 0 = bottom of slab.
+  // Flipping here means top of image → top of slab when viewed from the front.
+  return _pixelsToHeightmap(data, targetCols, targetRows).reverse()
 }
 
 /**
