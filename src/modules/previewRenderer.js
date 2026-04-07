@@ -19,6 +19,7 @@ export class PreviewRenderer {
     this._controls  = null
     this._mesh      = null
     this._animId    = null
+    this._fitted    = false   // true after first auto-fit; skip on subsequent updates
   }
 
   /**
@@ -96,23 +97,34 @@ export class PreviewRenderer {
     this._mesh = new THREE.Mesh(geo, mat)
     this._scene.add(this._mesh)
 
-    // Auto-fit camera to mesh bounding box
-    geo.computeBoundingBox()
-    const box    = geo.boundingBox
-    const center = new THREE.Vector3()
-    const size   = new THREE.Vector3()
-    box.getCenter(center)
-    box.getSize(size)
+    // Auto-fit camera only on the first mesh load
+    if (!this._fitted) {
+      this._fitted = true
+      geo.computeBoundingBox()
+      const box    = geo.boundingBox
+      const center = new THREE.Vector3()
+      const size   = new THREE.Vector3()
+      box.getCenter(center)
+      box.getSize(size)
 
-    const maxDim  = Math.max(size.x, size.y, size.z)
-    const fov     = this._camera.fov * (Math.PI / 180)
-    const dist    = (maxDim / 2) / Math.tan(fov / 2) * 1.8
+      const maxDim = Math.max(size.x, size.y, size.z)
+      const fov    = this._camera.fov * (Math.PI / 180)
+      const dist   = (maxDim / 2) / Math.tan(fov / 2) * 1.8
 
-    this._camera.position.copy(center)
-    this._camera.position.z += dist
-    this._camera.position.y -= dist * 0.4
-    this._controls.target.copy(center)
-    this._controls.update()
+      this._camera.position.copy(center)
+      this._camera.position.z += dist
+      this._camera.position.y -= dist * 0.4
+      this._controls.target.copy(center)
+      this._controls.update()
+    }
+  }
+
+  /**
+   * Reset camera fit so the next updateMesh() call re-fits the camera.
+   * Call this when a new image is uploaded.
+   */
+  resetFit() {
+    this._fitted = false
   }
 
   /**
