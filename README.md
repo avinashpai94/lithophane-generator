@@ -20,7 +20,7 @@ Browser-based tool that converts photos into 3D-printable lithophane STL files. 
 ## Installation
 
 ```bash
-git clone https://github.com/your-username/lithophane-generator.git
+git clone https://github.com/avinashpai94/lithophane-generator.git
 cd lithophane-generator
 npm install
 ```
