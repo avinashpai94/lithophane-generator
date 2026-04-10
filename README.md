@@ -1,16 +1,72 @@
-# React + Vite
+# Lithophane Generator
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Browser-based tool that converts photos into 3D-printable lithophane STL files. Runs entirely client-side — no backend or account required.
 
-Currently, two official plugins are available:
+## Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- Upload JPEG or PNG images
+- Automatic image suitability scoring (Poor / Marginal / Good / Excellent)
+- Three contrast modes: Linear, Quantized (layer steps), Dithered (halftone)
+- Interactive 3D preview with orbit controls
+- Standard and 2-color AMS/multi-material modes
+- Undo / redo with 20-snapshot history
+- Binary STL export ready for slicing
 
-## React Compiler
+## Requirements
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- [Node.js](https://nodejs.org) v18 or higher
+- npm (included with Node.js)
 
-## Expanding the ESLint configuration
+## Installation
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+```bash
+git clone https://github.com/your-username/lithophane-generator.git
+cd lithophane-generator
+npm install
+```
+
+## Usage
+
+### Development
+
+```bash
+npm run dev
+```
+
+Opens at `http://localhost:5173` with hot reload.
+
+### Production build
+
+```bash
+npm run build
+npm run preview
+```
+
+The built output is in `dist/` — serve it with any static file host (Netlify, Vercel, GitHub Pages, etc.).
+
+### Tests
+
+```bash
+npx vitest run
+```
+
+54 tests across image processing, mesh generation, STL export, and history management.
+
+## Recommended print settings (Bambu Lab)
+
+| Setting | Value |
+|---|---|
+| Nozzle | 0.4mm |
+| Layer height | 0.2mm |
+| Filament | White PETG or PLA |
+| Supports | None |
+| Orientation | Face down on bed |
+
+For dithered mode, a pixel pitch of 0.8mm at 2 dither levels gives the best halftone contrast.
+
+## Tech stack
+
+- [React 19](https://react.dev)
+- [Three.js](https://threejs.org) — 3D preview
+- [Vite](https://vite.dev) — build tool
+- [Vitest](https://vitest.dev) — test runner
