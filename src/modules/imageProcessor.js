@@ -77,3 +77,96 @@ export function _pixelsToHeightmap(pixels, cols, rows) {
   }
   return heightmap
 }
+
+/**
+ * Stretch the brightness distribution to fill [0, 1].
+ * min pixel → 0.0, max pixel → 1.0, others linearly interpolated.
+ * Uniform images (min === max) return an all-zero heightmap.
+ *
+ * @param {number[][]} heightmap
+ * @returns {number[][]}
+ */
+export function histogramEqualize(heightmap) {
+  let min = Infinity
+  let max = -Infinity
+  for (const row of heightmap) {
+    for (const v of row) {
+      if (v < min) min = v
+      if (v > max) max = v
+    }
+  }
+  const range = max - min
+  if (range === 0) return heightmap.map(row => row.map(() => 0))
+  return heightmap.map(row => row.map(v => (v - min) / range))
+}
+
+/**
+ * Snap each value to the nearest of numLevels evenly spaced steps in [0, 1].
+ * e.g. numLevels=5 → steps at 0, 0.25, 0.5, 0.75, 1.0
+ *
+ * @param {number[][]} heightmap
+ * @param {number} numLevels - must be >= 2
+ * @returns {number[][]}
+ */
+export function quantizeToLevels(heightmap, numLevels) {
+  const steps = Math.max(2, numLevels) - 1
+  return heightmap.map(row =>
+    row.map(v => Math.round(v * steps) / steps)
+  )
+}
+
+/**
+ * Floyd-Steinberg error diffusion dither to numLevels discrete levels.
+ * Distributes quantization error to right (7/16), lower-left (3/16),
+ * below (5/16), lower-right (1/16). Does not mutate input.
+ *
+ * @param {number[][]} heightmap
+ * @param {number} numLevels - must be >= 2
+ * @returns {number[][]}
+ */
+export function floydSteinbergDither(heightmap, numLevels) {
+  const rows = heightmap.length
+  const cols = heightmap[0].length
+  const steps = Math.max(2, numLevels) - 1
+  // Working copy — values may temporarily exceed [0,1] during error propagation
+  const buf = heightmap.map(row => [...row])
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const old = buf[r][c]
+      const quantized = Math.round(old * steps) / steps
+      buf[r][c] = quantized
+      const err = old - quantized
+      if (c + 1 < cols)              buf[r][c + 1]     += err * 7 / 16
+      if (r + 1 < rows) {
+        if (c - 1 >= 0)              buf[r + 1][c - 1] += err * 3 / 16
+                                     buf[r + 1][c]     += err * 5 / 16
+        if (c + 1 < cols)            buf[r + 1][c + 1] += err * 1 / 16
+      }
+    }
+  }
+  return buf
+}
+
+/**
+ * Apply a contrast preprocessing mode to a heightmap before mesh generation.
+ *
+ * Modes:
+ *   'linear'    — no change (default behavior)
+ *   'quantized' — histogram equalize → quantize to discrete layer steps
+ *   'dithered'  — histogram equalize → Floyd-Steinberg dither to discrete levels
+ *
+ * @param {number[][]} heightmap
+ * @param {string} mode - 'linear' | 'quantized' | 'dithered'
+ * @param {{ numLevels: number }} options
+ * @returns {number[][]}
+ */
+export function applyContrastMode(heightmap, mode, { numLevels } = {}) {
+  if (mode === 'quantized') {
+    return quantizeToLevels(histogramEqualize(heightmap), numLevels)
+  }
+  if (mode === 'dithered') {
+    return floydSteinbergDither(histogramEqualize(heightmap), numLevels)
+  }
+  return heightmap
+}

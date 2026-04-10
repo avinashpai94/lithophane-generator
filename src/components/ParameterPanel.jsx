@@ -44,6 +44,7 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
     widthMM, heightMM, lockAspectRatio,
     minThickness, maxThickness,
     borderWidthMM, pixelPitchMM, invertHeight,
+    contrastMode, layerHeightMM, ditherLevels,
   } = params
 
   const cols = Math.max(2, Math.round(widthMM  / pixelPitchMM))
@@ -179,6 +180,45 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
             <div style={S.warn}>Warning: pitch below nozzle width (0.4mm) — detail won't print</div>
           )}
         </div>
+        <div style={S.row}>
+          <span style={S.labelTxt}>Contrast mode</span>
+          <select
+            value={contrastMode}
+            onChange={(e) => set('contrastMode', e.target.value)}
+            style={{ flex: 2, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 4px' }}
+          >
+            <option value="linear">Linear (default)</option>
+            <option value="quantized">Quantized (layer steps)</option>
+            <option value="dithered">Dithered (halftone)</option>
+          </select>
+        </div>
+        {contrastMode === 'quantized' && (
+          <div style={S.row}>
+            <span style={S.labelTxt}>Layer height</span>
+            <input
+              type="number" min={0.05} max={1.0} step={0.05}
+              value={layerHeightMM.toFixed(2)}
+              onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) set('layerHeightMM', Math.max(0.05, v)) }}
+            />
+            <span style={{ color: 'var(--text-dim)', width: 22 }}>mm</span>
+          </div>
+        )}
+        {contrastMode === 'dithered' && (
+          <div>
+            <div style={S.row}>
+              <span style={S.labelTxt}>Dither levels</span>
+              <input
+                type="number" min={2} max={8} step={1}
+                value={ditherLevels}
+                onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) set('ditherLevels', Math.max(2, Math.min(8, v))) }}
+              />
+              <span style={{ color: 'var(--text-dim)', width: 22 }}></span>
+            </div>
+            {pixelPitchMM < 0.6 && (
+              <div style={S.warn}>Tip: dithered mode works best at ≥ 0.6mm pixel pitch</div>
+            )}
+          </div>
+        )}
         <div style={S.row}>
           <label>
             <input type="checkbox" checked={invertHeight}

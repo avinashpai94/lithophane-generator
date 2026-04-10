@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { processImage, getGrayscalePreview } from './modules/imageProcessor.js'
+import { processImage, getGrayscalePreview, applyContrastMode } from './modules/imageProcessor.js'
 import { generate, generateTwoColor } from './modules/meshGenerator.js'
 import { exportBinary }  from './modules/stlExporter.js'
 import { PreviewRenderer } from './modules/previewRenderer.js'
@@ -25,6 +25,19 @@ const DEFAULT_PARAMS = {
   borderWidthMM:  4.0,
   pixelPitchMM:   0.4,
   invertHeight:   false,
+  contrastMode:   'linear',
+  layerHeightMM:  0.2,
+  ditherLevels:   2,
+}
+
+function computeNumLevels(params, exportMode, twoColorParams) {
+  if (params.contrastMode === 'dithered') {
+    return Math.max(2, params.ditherLevels)
+  }
+  const reliefMM = exportMode === 'twoColor'
+    ? twoColorParams.reliefHeightMM
+    : (params.maxThickness - params.minThickness)
+  return Math.max(2, Math.floor(reliefMM / params.layerHeightMM))
 }
 
 export default function App() {
@@ -95,9 +108,12 @@ export default function App() {
         prev.params.heightMM !== params.heightMM
       ))
 
-    const heightmap = needsImageProc
+    const rawHeightmap = needsImageProc
       ? processImage(sourceImage, cols, rows)
       : prev.heightmap
+
+    const numLevels = computeNumLevels(params, exportMode, twoColorParams)
+    const heightmap = applyContrastMode(rawHeightmap, params.contrastMode, { numLevels })
 
     if (exportMode === 'twoColor') {
       const { baseMesh, reliefMesh } = generateTwoColor(heightmap, {
@@ -120,7 +136,7 @@ export default function App() {
       setTwoColorData({ baseMesh, reliefMesh, singleExportMesh })
       setMeshData(null)
       rendererRef.current?.updateTwoColorMesh(baseMesh, reliefMesh, twoColorParams.baseColor, twoColorParams.reliefColor)
-      history.push({ params: { ...params }, heightmap, exportMode, twoColorParams: { ...twoColorParams } })
+      history.push({ params: { ...params }, heightmap: rawHeightmap, exportMode, twoColorParams: { ...twoColorParams } })
     } else {
       const mesh = generate(heightmap, {
         widthMM:       params.widthMM,
@@ -133,7 +149,7 @@ export default function App() {
       setMeshData(mesh)
       setTwoColorData(null)
       rendererRef.current?.updateMesh(mesh)
-      history.push({ params: { ...params }, heightmap, exportMode, twoColorParams: null })
+      history.push({ params: { ...params }, heightmap: rawHeightmap, exportMode, twoColorParams: null })
     }
   }, [sourceImage, params, exportMode, twoColorParams, history])
 
@@ -144,7 +160,9 @@ export default function App() {
     if (snapshot.exportMode === 'twoColor' && snapshot.twoColorParams) {
       setExportMode('twoColor')
       setTwoColorParams(snapshot.twoColorParams)
-      const { baseMesh, reliefMesh } = generateTwoColor(snapshot.heightmap, {
+      const numLevels = computeNumLevels(snapshot.params, 'twoColor', snapshot.twoColorParams)
+      const heightmap = applyContrastMode(snapshot.heightmap, snapshot.params.contrastMode, { numLevels })
+      const { baseMesh, reliefMesh } = generateTwoColor(heightmap, {
         widthMM:         snapshot.params.widthMM,
         heightMM:        snapshot.params.heightMM,
         baseThicknessMM: snapshot.twoColorParams.baseThicknessMM,
@@ -152,7 +170,7 @@ export default function App() {
         borderWidthMM:   snapshot.params.borderWidthMM,
         invertHeight:    snapshot.params.invertHeight,
       })
-      const singleExportMesh = generate(snapshot.heightmap, {
+      const singleExportMesh = generate(heightmap, {
         widthMM:       snapshot.params.widthMM,
         heightMM:      snapshot.params.heightMM,
         minThickness:  snapshot.twoColorParams.baseThicknessMM,
@@ -165,7 +183,9 @@ export default function App() {
       rendererRef.current?.updateTwoColorMesh(baseMesh, reliefMesh, snapshot.twoColorParams.baseColor, snapshot.twoColorParams.reliefColor)
     } else {
       setExportMode('standard')
-      const mesh = generate(snapshot.heightmap, {
+      const numLevels = computeNumLevels(snapshot.params, 'standard', null)
+      const heightmap = applyContrastMode(snapshot.heightmap, snapshot.params.contrastMode, { numLevels })
+      const mesh = generate(heightmap, {
         widthMM:       snapshot.params.widthMM,
         heightMM:      snapshot.params.heightMM,
         minThickness:  snapshot.params.minThickness,
