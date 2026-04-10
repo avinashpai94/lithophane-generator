@@ -149,6 +149,29 @@ export function floydSteinbergDither(heightmap, numLevels) {
 }
 
 /**
+ * Analyze a heightmap and return suitability metrics for lithophane printing.
+ *
+ * @param {number[][]} heightmap
+ * @returns {{ tonalRange: number, stdDev: number, darkRatio: number, brightRatio: number }}
+ */
+export function analyzeHeightmap(heightmap) {
+  const flat = heightmap.flat().sort((a, b) => a - b)
+  const n = flat.length
+
+  const p05 = flat[Math.floor(0.05 * n)]
+  const p95 = flat[Math.floor(0.95 * n)]
+  const tonalRange = p95 - p05
+
+  const mean = flat.reduce((sum, v) => sum + v, 0) / n
+  const stdDev = Math.sqrt(flat.reduce((sum, v) => sum + (v - mean) ** 2, 0) / n)
+
+  const darkRatio  = flat.filter(v => v < 0.1).length / n
+  const brightRatio = flat.filter(v => v > 0.9).length / n
+
+  return { tonalRange, stdDev, darkRatio, brightRatio }
+}
+
+/**
  * Apply a contrast preprocessing mode to a heightmap before mesh generation.
  *
  * Modes:

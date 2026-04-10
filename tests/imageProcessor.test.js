@@ -5,6 +5,7 @@ import {
   quantizeToLevels,
   floydSteinbergDither,
   applyContrastMode,
+  analyzeHeightmap,
 } from '../src/modules/imageProcessor.js'
 
 /**
@@ -162,5 +163,63 @@ describe('ImageProcessor — contrast preprocessing', () => {
     const hm = makeHeightmap(5, 5, (c, r) => (c + r) / 8)
     const result = applyContrastMode(hm, 'linear', { numLevels: 5 })
     expect(result).toBe(hm) // reference equality — no copy made
+  })
+})
+
+describe('ImageProcessor — analyzeHeightmap', () => {
+  // Test 14
+  it('uniform image: tonalRange=0, stdDev=0, no dark or bright pixels', () => {
+    const hm = makeHeightmap(10, 10, () => 0.5)
+    const { tonalRange, stdDev, darkRatio, brightRatio } = analyzeHeightmap(hm)
+    expect(tonalRange).toBeCloseTo(0, 5)
+    expect(stdDev).toBeCloseTo(0, 5)
+    expect(darkRatio).toBe(0)
+    expect(brightRatio).toBe(0)
+  })
+
+  // Test 15
+  it('half black, half white: tonalRange=1, stdDev≈0.5, darkRatio=0.5, brightRatio=0.5', () => {
+    const hm = makeHeightmap(10, 2, (c) => c < 10 ? 0.0 : 1.0)
+    // first row all 0.0, second row all 1.0
+    const hm2 = [
+      Array(10).fill(0.0),
+      Array(10).fill(1.0),
+    ]
+    const { tonalRange, stdDev, darkRatio, brightRatio } = analyzeHeightmap(hm2)
+    expect(tonalRange).toBeCloseTo(1.0, 5)
+    expect(stdDev).toBeCloseTo(0.5, 5)
+    expect(darkRatio).toBeCloseTo(0.5, 5)
+    expect(brightRatio).toBeCloseTo(0.5, 5)
+  })
+
+  // Test 16
+  it('tonal range ignores outliers: 98% at 0.5, 1% at 0.0, 1% at 1.0', () => {
+    // 200 pixels: 196 at 0.5, 2 at 0.0, 2 at 1.0
+    const flat = [
+      ...Array(2).fill(0.0),
+      ...Array(196).fill(0.5),
+      ...Array(2).fill(1.0),
+    ]
+    const hm = [flat]
+    const { tonalRange } = analyzeHeightmap(hm)
+    // p05 and p95 should both land on 0.5, so range ≈ 0
+    expect(tonalRange).toBeCloseTo(0, 3)
+  })
+
+  // Test 17
+  it('stdDev correctness: known 2×2 heightmap', () => {
+    // values: 0.0, 0.5, 0.5, 1.0 → mean=0.5, variance=0.125, stdDev≈0.3536
+    const hm = [[0.0, 0.5], [0.5, 1.0]]
+    const { stdDev } = analyzeHeightmap(hm)
+    expect(stdDev).toBeCloseTo(Math.sqrt(0.125), 4)
+  })
+
+  // Test 18
+  it('darkRatio and brightRatio: correct fractions for known distribution', () => {
+    // 4 dark (0.05), 6 mid (0.5), 2 bright (0.95) — 12 pixels total
+    const hm = [[0.05, 0.05, 0.05, 0.05, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.95, 0.95]]
+    const { darkRatio, brightRatio } = analyzeHeightmap(hm)
+    expect(darkRatio).toBeCloseTo(4 / 12, 5)
+    expect(brightRatio).toBeCloseTo(2 / 12, 5)
   })
 })
