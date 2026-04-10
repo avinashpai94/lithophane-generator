@@ -43,7 +43,7 @@ function SliderRow({ label, value, min, max, step = 0.1, onChange, unit = 'mm', 
   )
 }
 
-export default function ParameterPanel({ params, setParams, sourceImage, onApply, exportMode, onExportModeChange, twoColorParams, setTwoColorParams }) {
+export default function ParameterPanel({ params, setParams, sourceImage, onApply, exportMode, onExportModeChange, twoColorParams, setTwoColorParams, plaqueParams, setPlaqueParams }) {
   const {
     widthMM, heightMM, lockAspectRatio,
     minThickness, maxThickness,
@@ -88,6 +88,10 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
     setTwoColorParams((p) => ({ ...p, [key]: value }))
   }
 
+  function setPQ(key, value) {
+    setPlaqueParams((p) => ({ ...p, [key]: value }))
+  }
+
   return (
     <div style={S.root}>
 
@@ -102,6 +106,11 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
           style={exportMode === 'twoColor' ? S.toggleActive : S.toggleInactive}
           onClick={() => onExportModeChange('twoColor')}>
           2-Color
+        </button>
+        <button
+          style={exportMode === 'plaque' ? S.toggleActive : S.toggleInactive}
+          onClick={() => onExportModeChange('plaque')}>
+          Plaque
         </button>
       </div>
 
@@ -128,6 +137,11 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
             onChange={(v) => setTC('baseThicknessMM', v)} tooltip="Thickness of the solid background base plate (printed in first filament)" />
           <SliderRow label="Relief height" value={twoColorParams.reliefHeightMM} min={0.2} max={4} step={0.1}
             onChange={(v) => setTC('reliefHeightMM', v)} tooltip="Height of the image detail above the base plate (printed in second filament)" />
+        </>) : exportMode === 'plaque' ? (<>
+          <SliderRow label="Base height" value={plaqueParams.baseHeightMM} min={0.4} max={4} step={0.1}
+            onChange={(v) => setPQ('baseHeightMM', v)} tooltip="Thickness of the flat base plate (printed in base color)" />
+          <SliderRow label="Column height" value={plaqueParams.columnHeightMM} min={0.2} max={4} step={0.1}
+            onChange={(v) => setPQ('columnHeightMM', v)} tooltip="Height of the raised columns above the base (printed in dark color to block reflected light)" />
         </>) : (<>
           <SliderRow label="Min (light)" value={minThickness} min={0.4} max={maxThickness - 0.1} step={0.1}
             onChange={(v) => set('minThickness', v)} tooltip="Thickness at the lightest pixels — thinner lets more light through when backlit" />
@@ -165,6 +179,35 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
         </div>
       </>)}
 
+      {exportMode === 'plaque' && (<>
+        <div style={S.divider} />
+        <div style={S.section}>
+          <div style={S.heading}>Colors (preview only)</div>
+          <div style={S.colorRow}>
+            <span style={S.labelTxt}>Base</span>
+            <input type="color" style={S.colorSwatch} value={plaqueParams.baseColor}
+              onChange={(e) => setPQ('baseColor', e.target.value)} />
+            <span style={{ ...S.info, fontFamily: 'monospace' }}>{plaqueParams.baseColor}</span>
+          </div>
+          <div style={S.colorRow}>
+            <span style={S.labelTxt}>Columns</span>
+            <input type="color" style={S.colorSwatch} value={plaqueParams.columnColor}
+              onChange={(e) => setPQ('columnColor', e.target.value)} />
+            <span style={{ ...S.info, fontFamily: 'monospace' }}>{plaqueParams.columnColor}</span>
+          </div>
+          <div style={S.info}>Preview only — assign filament in Bambu Studio.</div>
+        </div>
+        <div style={{ ...S.section, background: 'rgba(78,204,163,0.08)', borderRadius: 6, padding: 8 }}>
+          <div style={{ ...S.info, lineHeight: 1.6 }}>
+            <strong style={{ color: 'var(--accent)' }}>Bambu Studio workflow:</strong><br/>
+            1. Import <em>plaque_base.stl</em> + <em>plaque_columns.stl</em><br/>
+            2. Merge objects → assign filament per object<br/>
+            3. Base = light color · Columns = dark color<br/>
+            4. View under direct light (not backlit)
+          </div>
+        </div>
+      </>)}
+
       <div style={S.divider} />
 
       <div style={S.section}>
@@ -187,50 +230,55 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
             <div style={S.warn}>Warning: pitch below nozzle width (0.4mm) — detail won't print</div>
           )}
         </div>
-        <div style={S.row}>
-          <span style={{ ...S.labelTxt, display: 'flex', alignItems: 'center' }}>
-            Contrast mode<InfoTooltip text="How pixel brightness is mapped to thickness before mesh generation" />
-          </span>
-          <select
-            value={contrastMode}
-            onChange={(e) => set('contrastMode', e.target.value)}
-            style={{ flex: 2, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 4px' }}
-          >
-            <option value="linear">Linear (default)</option>
-            <option value="quantized">Quantized (layer steps)</option>
-            <option value="dithered">Dithered (halftone)</option>
-          </select>
-        </div>
-        {contrastMode === 'quantized' && (
+        {exportMode !== 'plaque' && (<>
           <div style={S.row}>
             <span style={{ ...S.labelTxt, display: 'flex', alignItems: 'center' }}>
-              Layer height<InfoTooltip text="Your printer's layer height — snaps thickness values to printable increments" />
+              Contrast mode<InfoTooltip text="How pixel brightness is mapped to thickness before mesh generation" />
             </span>
-            <input
-              type="number" min={0.05} max={1.0} step={0.05}
-              value={layerHeightMM.toFixed(2)}
-              onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) set('layerHeightMM', Math.max(0.05, v)) }}
-            />
-            <span style={{ color: 'var(--text-dim)', width: 22 }}>mm</span>
+            <select
+              value={contrastMode}
+              onChange={(e) => set('contrastMode', e.target.value)}
+              style={{ flex: 2, background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 4, padding: '2px 4px' }}
+            >
+              <option value="linear">Linear (default)</option>
+              <option value="quantized">Quantized (layer steps)</option>
+              <option value="dithered">Dithered (halftone)</option>
+            </select>
           </div>
-        )}
-        {contrastMode === 'dithered' && (
-          <div>
+          {contrastMode === 'quantized' && (
             <div style={S.row}>
               <span style={{ ...S.labelTxt, display: 'flex', alignItems: 'center' }}>
-                Dither levels<InfoTooltip text="Number of discrete thickness steps — 2 = binary halftone (maximum contrast), 3–4 = softer gradients" />
+                Layer height<InfoTooltip text="Your printer's layer height — snaps thickness values to printable increments" />
               </span>
               <input
-                type="number" min={2} max={8} step={1}
-                value={ditherLevels}
-                onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) set('ditherLevels', Math.max(2, Math.min(8, v))) }}
+                type="number" min={0.05} max={1.0} step={0.05}
+                value={layerHeightMM.toFixed(2)}
+                onChange={(e) => { const v = parseFloat(e.target.value); if (!isNaN(v)) set('layerHeightMM', Math.max(0.05, v)) }}
               />
-              <span style={{ color: 'var(--text-dim)', width: 22 }}></span>
+              <span style={{ color: 'var(--text-dim)', width: 22 }}>mm</span>
             </div>
-            {pixelPitchMM < 0.6 && (
-              <div style={S.warn}>Tip: dithered mode works best at ≥ 0.6mm pixel pitch</div>
-            )}
-          </div>
+          )}
+          {contrastMode === 'dithered' && (
+            <div>
+              <div style={S.row}>
+                <span style={{ ...S.labelTxt, display: 'flex', alignItems: 'center' }}>
+                  Dither levels<InfoTooltip text="Number of discrete thickness steps — 2 = binary halftone (maximum contrast), 3–4 = softer gradients" />
+                </span>
+                <input
+                  type="number" min={2} max={8} step={1}
+                  value={ditherLevels}
+                  onChange={(e) => { const v = parseInt(e.target.value, 10); if (!isNaN(v)) set('ditherLevels', Math.max(2, Math.min(8, v))) }}
+                />
+                <span style={{ color: 'var(--text-dim)', width: 22 }}></span>
+              </div>
+              {pixelPitchMM < 0.6 && (
+                <div style={S.warn}>Tip: dithered mode works best at ≥ 0.6mm pixel pitch</div>
+              )}
+            </div>
+          )}
+        </>)}
+        {exportMode === 'plaque' && (
+          <div style={S.info}>Plaque uses binary dithering — always 2 levels for maximum halftone contrast.</div>
         )}
         <div style={S.row}>
           <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>

@@ -12,7 +12,7 @@ const S = {
   dlBtn:    { background: 'var(--accent)', color: '#0a1628', fontWeight: 700 },
 }
 
-export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, exportMode, onDownload, canDownload, onDownload2Color, canDownloadTwo, stats, historyPos }) {
+export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, exportMode, onDownload, canDownload, onDownload2Color, canDownloadTwo, onDownloadPlaqueBase, onDownloadPlaqueColumns, canDownloadPlaque, stats, historyPos }) {
   return (
     <div style={S.root}>
       <span style={S.title}>Lithophane</span>
@@ -28,7 +28,10 @@ export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, exportMode, 
 
       <div style={S.sep} />
 
-      {exportMode === 'twoColor' ? (
+      {exportMode === 'plaque' ? (<>
+        <button style={S.dlBtn} onClick={onDownloadPlaqueBase}    disabled={!canDownloadPlaque} title="Export base plate as STL — print in base color">↓ Base STL</button>
+        <button style={S.dlBtn} onClick={onDownloadPlaqueColumns} disabled={!canDownloadPlaque} title="Export column mesh as STL — print in dark color on top of base">↓ Columns STL</button>
+      </>) : exportMode === 'twoColor' ? (
         <button style={S.dlBtn} onClick={onDownload2Color} disabled={!canDownloadTwo} title="Export combined mesh as STL — assign filament by layer height in Bambu Studio">↓ Download STL</button>
       ) : (
         <button style={S.dlBtn} onClick={onDownload} disabled={!canDownload} title="Export mesh as binary STL file ready for slicing">↓ Download STL</button>
@@ -37,7 +40,8 @@ export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, exportMode, 
       {stats && (
         <span style={S.stats}>
           {stats.triangles.toLocaleString()} triangles
-          {` · ${stats.stlSizeMB} MB`}
+          {stats.plaque  && ` · base ${stats.stlBaseMB} MB · cols ${stats.stlColsMB} MB`}
+          {!stats.plaque && ` · ${stats.stlSizeMB} MB`}
           {stats.twoColor && ` · split at ${stats.transitionMM}mm`}
           {historyPos != null && ` · history ${historyPos}`}
         </span>

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { processImage, getGrayscalePreview, applyContrastMode, analyzeHeightmap } from './modules/imageProcessor.js'
-import { generate, generateTwoColor } from './modules/meshGenerator.js'
+import { generate, generateTwoColor, generatePlaque } from './modules/meshGenerator.js'
 import { exportBinary }  from './modules/stlExporter.js'
 import { PreviewRenderer } from './modules/previewRenderer.js'
 import { useHistory }    from './hooks/useHistory.js'
@@ -8,6 +8,13 @@ import ImageUploader  from './components/ImageUploader.jsx'
 import ParameterPanel from './components/ParameterPanel.jsx'
 import PreviewPanel   from './components/PreviewPanel.jsx'
 import Toolbar        from './components/Toolbar.jsx'
+
+const DEFAULT_PLAQUE_PARAMS = {
+  baseHeightMM:   1.2,
+  columnHeightMM: 0.8,
+  baseColor:      '#f0ead6',
+  columnColor:    '#222222',
+}
 
 const DEFAULT_TWO_COLOR_PARAMS = {
   baseThicknessMM: 0.6,
@@ -45,9 +52,11 @@ export default function App() {
   const [grayscalePreview, setGrayscalePreview] = useState(null)
   const [params,           setParams]           = useState(DEFAULT_PARAMS)
   const [meshData,         setMeshData]         = useState(null)
-  const [exportMode,       setExportMode]       = useState('standard') // 'standard' | 'twoColor'
+  const [exportMode,       setExportMode]       = useState('standard') // 'standard' | 'twoColor' | 'plaque'
   const [twoColorParams,   setTwoColorParams]   = useState(DEFAULT_TWO_COLOR_PARAMS)
   const [twoColorData,     setTwoColorData]     = useState(null) // { baseMesh, reliefMesh }
+  const [plaqueParams,     setPlaqueParams]     = useState(DEFAULT_PLAQUE_PARAMS)
+  const [plaqueData,       setPlaqueData]       = useState(null) // { baseMesh, columnMesh }
   const [imageAnalysis,    setImageAnalysis]    = useState(null)
 
   const history = useHistory(20)
@@ -80,6 +89,7 @@ export default function App() {
     setGrayscalePreview(getGrayscalePreview(img, 300))
     setMeshData(null)
     setTwoColorData(null)
+    setPlaqueData(null)
     setImageAnalysis(null)
     history.clear()
     rendererRef.current?.resetFit()
@@ -119,6 +129,24 @@ export default function App() {
       ? processImage(sourceImage, cols, rows)
       : prev.heightmap
 
+    if (exportMode === 'plaque') {
+      // Plaque always uses binary dithering — halftone looks best for reflected-light prints
+      const heightmap = applyContrastMode(rawHeightmap, 'dithered', { numLevels: 2 })
+      const { baseMesh, columnMesh } = generatePlaque(heightmap, {
+        widthMM:        params.widthMM,
+        heightMM:       params.heightMM,
+        baseHeightMM:   plaqueParams.baseHeightMM,
+        columnHeightMM: plaqueParams.columnHeightMM,
+        borderWidthMM:  params.borderWidthMM,
+      })
+      setPlaqueData({ baseMesh, columnMesh })
+      setMeshData(null)
+      setTwoColorData(null)
+      rendererRef.current?.updateTwoColorMesh(baseMesh, columnMesh, plaqueParams.baseColor, plaqueParams.columnColor)
+      history.push({ params: { ...params }, heightmap: rawHeightmap, exportMode, twoColorParams: null, plaqueParams: { ...plaqueParams } })
+      return
+    }
+
     const numLevels = computeNumLevels(params, exportMode, twoColorParams)
     const heightmap = applyContrastMode(rawHeightmap, params.contrastMode, { numLevels })
 
@@ -142,8 +170,9 @@ export default function App() {
       })
       setTwoColorData({ baseMesh, reliefMesh, singleExportMesh })
       setMeshData(null)
+      setPlaqueData(null)
       rendererRef.current?.updateTwoColorMesh(baseMesh, reliefMesh, twoColorParams.baseColor, twoColorParams.reliefColor)
-      history.push({ params: { ...params }, heightmap: rawHeightmap, exportMode, twoColorParams: { ...twoColorParams } })
+      history.push({ params: { ...params }, heightmap: rawHeightmap, exportMode, twoColorParams: { ...twoColorParams }, plaqueParams: null })
     } else {
       const mesh = generate(heightmap, {
         widthMM:       params.widthMM,
@@ -155,16 +184,32 @@ export default function App() {
       })
       setMeshData(mesh)
       setTwoColorData(null)
+      setPlaqueData(null)
       rendererRef.current?.updateMesh(mesh)
-      history.push({ params: { ...params }, heightmap: rawHeightmap, exportMode, twoColorParams: null })
+      history.push({ params: { ...params }, heightmap: rawHeightmap, exportMode, twoColorParams: null, plaqueParams: null })
     }
-  }, [sourceImage, params, exportMode, twoColorParams, history])
+  }, [sourceImage, params, exportMode, twoColorParams, plaqueParams, history])
 
   // ── Undo / Redo ──────────────────────────────────────────────────────────
   const restoreSnapshot = useCallback((snapshot) => {
     if (!snapshot) return
     setParams(snapshot.params)
-    if (snapshot.exportMode === 'twoColor' && snapshot.twoColorParams) {
+    if (snapshot.exportMode === 'plaque' && snapshot.plaqueParams) {
+      setExportMode('plaque')
+      setPlaqueParams(snapshot.plaqueParams)
+      const heightmap = applyContrastMode(snapshot.heightmap, 'dithered', { numLevels: 2 })
+      const { baseMesh, columnMesh } = generatePlaque(heightmap, {
+        widthMM:        snapshot.params.widthMM,
+        heightMM:       snapshot.params.heightMM,
+        baseHeightMM:   snapshot.plaqueParams.baseHeightMM,
+        columnHeightMM: snapshot.plaqueParams.columnHeightMM,
+        borderWidthMM:  snapshot.params.borderWidthMM,
+      })
+      setPlaqueData({ baseMesh, columnMesh })
+      setMeshData(null)
+      setTwoColorData(null)
+      rendererRef.current?.updateTwoColorMesh(baseMesh, columnMesh, snapshot.plaqueParams.baseColor, snapshot.plaqueParams.columnColor)
+    } else if (snapshot.exportMode === 'twoColor' && snapshot.twoColorParams) {
       setExportMode('twoColor')
       setTwoColorParams(snapshot.twoColorParams)
       const numLevels = computeNumLevels(snapshot.params, 'twoColor', snapshot.twoColorParams)
@@ -202,6 +247,7 @@ export default function App() {
       })
       setMeshData(mesh)
       setTwoColorData(null)
+      setPlaqueData(null)
       rendererRef.current?.updateMesh(mesh)
     }
   }, [])
@@ -241,7 +287,34 @@ export default function App() {
     }
   }, [twoColorParams.baseColor, twoColorParams.reliefColor]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (exportMode === 'plaque' && plaqueData) {
+      rendererRef.current?.updateTwoColorMesh(
+        plaqueData.baseMesh, plaqueData.columnMesh,
+        plaqueParams.baseColor, plaqueParams.columnColor,
+      )
+    }
+  }, [plaqueParams.baseColor, plaqueParams.columnColor]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── STL download ─────────────────────────────────────────────────────────
+  const handleDownloadPlaqueBase = useCallback(() => {
+    if (!plaqueData) return
+    const blob = exportBinary(plaqueData.baseMesh)
+    const url  = URL.createObjectURL(blob)
+    const a    = Object.assign(document.createElement('a'), { href: url, download: 'plaque_base.stl' })
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [plaqueData])
+
+  const handleDownloadPlaqueColumns = useCallback(() => {
+    if (!plaqueData) return
+    const blob = exportBinary(plaqueData.columnMesh)
+    const url  = URL.createObjectURL(blob)
+    const a    = Object.assign(document.createElement('a'), { href: url, download: 'plaque_columns.stl' })
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [plaqueData])
+
   const handleDownload = useCallback(() => {
     if (!meshData) return
     const blob = exportBinary(meshData)
@@ -260,7 +333,18 @@ export default function App() {
     URL.revokeObjectURL(url)
   }, [twoColorData])
 
-  const stats = twoColorData
+  const stats = plaqueData
+    ? (() => {
+        const baseTri = plaqueData.baseMesh.faces.length / 3
+        const colTri  = plaqueData.columnMesh.faces.length / 3
+        return {
+          triangles:   baseTri + colTri,
+          stlBaseMB:  ((84 + 50 * baseTri)  / 1e6).toFixed(2),
+          stlColsMB:  ((84 + 50 * colTri)   / 1e6).toFixed(2),
+          plaque: true,
+        }
+      })()
+    : twoColorData
     ? {
         triangles:    twoColorData.singleExportMesh.faces.length / 3,
         stlSizeMB:   ((84 + 50 * (twoColorData.singleExportMesh.faces.length / 3)) / 1e6).toFixed(2),
@@ -280,8 +364,9 @@ export default function App() {
         onUndo={handleUndo}   canUndo={history.canUndo}
         onRedo={handleRedo}   canRedo={history.canRedo}
         exportMode={exportMode}
-        onDownload={handleDownload}         canDownload={!!meshData}
-        onDownload2Color={handleDownload2Color} canDownloadTwo={!!twoColorData}
+        onDownload={handleDownload}                     canDownload={!!meshData}
+        onDownload2Color={handleDownload2Color}         canDownloadTwo={!!twoColorData}
+        onDownloadPlaqueBase={handleDownloadPlaqueBase} onDownloadPlaqueColumns={handleDownloadPlaqueColumns} canDownloadPlaque={!!plaqueData}
         stats={stats}
         historyPos={history.position.total > 0
           ? `${history.position.current + 1}/${history.position.total}`
@@ -302,11 +387,12 @@ export default function App() {
             sourceImage={sourceImage} onApply={handleApply}
             exportMode={exportMode} onExportModeChange={setExportMode}
             twoColorParams={twoColorParams} setTwoColorParams={setTwoColorParams}
+            plaqueParams={plaqueParams} setPlaqueParams={setPlaqueParams}
           />
         </div>
 
         {/* Preview */}
-        <PreviewPanel containerRef={previewContainerRef} hasMesh={!!meshData || !!twoColorData} />
+        <PreviewPanel containerRef={previewContainerRef} hasMesh={!!meshData || !!twoColorData || !!plaqueData} />
       </div>
     </div>
   )
