@@ -1,3 +1,5 @@
+import InfoTooltip from './InfoTooltip.jsx'
+
 const NOZZLE_WIDTH = 0.4
 
 const S = {
@@ -18,11 +20,13 @@ const S = {
   colorSwatch: { width: 32, height: 24, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', padding: 0 },
 }
 
-function SliderRow({ label, value, min, max, step = 0.1, onChange, unit = 'mm', decimals = 1 }) {
+function SliderRow({ label, value, min, max, step = 0.1, onChange, unit = 'mm', decimals = 1, tooltip }) {
   return (
     <div>
       <div style={S.row}>
-        <span style={S.labelTxt}>{label}</span>
+        <span style={{ ...S.labelTxt, display: 'flex', alignItems: 'center' }}>
+          {label}{tooltip && <InfoTooltip text={tooltip} />}
+        </span>
         <input
           type="range" min={min} max={max} step={step}
           value={value} style={S.slider}
@@ -103,13 +107,14 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
 
       <div style={S.section}>
         <div style={S.heading}>Dimensions</div>
-        <SliderRow label="Width"  value={widthMM}  min={10} max={300} step={1} decimals={0} onChange={setWidth} />
-        <SliderRow label="Height" value={heightMM} min={10} max={300} step={1} decimals={0} onChange={setHeight} />
+        <SliderRow label="Width"  value={widthMM}  min={10} max={300} step={1} decimals={0} onChange={setWidth}  tooltip="Physical width of the printed lithophane in mm" />
+        <SliderRow label="Height" value={heightMM} min={10} max={300} step={1} decimals={0} onChange={setHeight} tooltip="Physical height of the printed lithophane in mm" />
         <div style={S.row}>
-          <label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <input type="checkbox" checked={lockAspectRatio}
               onChange={(e) => set('lockAspectRatio', e.target.checked)} />
             Lock aspect ratio
+            <InfoTooltip text="Keep width and height proportional to the source image" />
           </label>
         </div>
       </div>
@@ -120,14 +125,14 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
         <div style={S.heading}>Thickness</div>
         {exportMode === 'twoColor' ? (<>
           <SliderRow label="Base" value={twoColorParams.baseThicknessMM} min={0.4} max={3} step={0.1}
-            onChange={(v) => setTC('baseThicknessMM', v)} />
+            onChange={(v) => setTC('baseThicknessMM', v)} tooltip="Thickness of the solid background base plate (printed in first filament)" />
           <SliderRow label="Relief height" value={twoColorParams.reliefHeightMM} min={0.2} max={4} step={0.1}
-            onChange={(v) => setTC('reliefHeightMM', v)} />
+            onChange={(v) => setTC('reliefHeightMM', v)} tooltip="Height of the image detail above the base plate (printed in second filament)" />
         </>) : (<>
           <SliderRow label="Min (light)" value={minThickness} min={0.4} max={maxThickness - 0.1} step={0.1}
-            onChange={(v) => set('minThickness', v)} />
+            onChange={(v) => set('minThickness', v)} tooltip="Thickness at the lightest pixels — thinner lets more light through when backlit" />
           <SliderRow label="Max (dark)"  value={maxThickness} min={minThickness + 0.1} max={6} step={0.1}
-            onChange={(v) => set('maxThickness', v)} />
+            onChange={(v) => set('maxThickness', v)} tooltip="Thickness at the darkest pixels — thicker blocks more light when backlit" />
         </>)}
       </div>
 
@@ -165,10 +170,12 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
       <div style={S.section}>
         <div style={S.heading}>Geometry</div>
         <SliderRow label="Border" value={borderWidthMM} min={0} max={20} step={0.5}
-          onChange={(v) => set('borderWidthMM', v)} />
+          onChange={(v) => set('borderWidthMM', v)} tooltip="Flat border surrounding the image area, printed at maximum thickness" />
         <div>
           <div style={S.row}>
-            <span style={S.labelTxt}>Pixel pitch</span>
+            <span style={{ ...S.labelTxt, display: 'flex', alignItems: 'center' }}>
+              Pixel pitch<InfoTooltip text="Distance between mesh vertices — smaller = more detail but larger file and longer generation time" />
+            </span>
             <input
               type="number" min={0.2} max={5} step={0.05}
               value={pixelPitchMM.toFixed(2)}
@@ -181,7 +188,9 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
           )}
         </div>
         <div style={S.row}>
-          <span style={S.labelTxt}>Contrast mode</span>
+          <span style={{ ...S.labelTxt, display: 'flex', alignItems: 'center' }}>
+            Contrast mode<InfoTooltip text="How pixel brightness is mapped to thickness before mesh generation" />
+          </span>
           <select
             value={contrastMode}
             onChange={(e) => set('contrastMode', e.target.value)}
@@ -194,7 +203,9 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
         </div>
         {contrastMode === 'quantized' && (
           <div style={S.row}>
-            <span style={S.labelTxt}>Layer height</span>
+            <span style={{ ...S.labelTxt, display: 'flex', alignItems: 'center' }}>
+              Layer height<InfoTooltip text="Your printer's layer height — snaps thickness values to printable increments" />
+            </span>
             <input
               type="number" min={0.05} max={1.0} step={0.05}
               value={layerHeightMM.toFixed(2)}
@@ -206,7 +217,9 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
         {contrastMode === 'dithered' && (
           <div>
             <div style={S.row}>
-              <span style={S.labelTxt}>Dither levels</span>
+              <span style={{ ...S.labelTxt, display: 'flex', alignItems: 'center' }}>
+                Dither levels<InfoTooltip text="Number of discrete thickness steps — 2 = binary halftone (maximum contrast), 3–4 = softer gradients" />
+              </span>
               <input
                 type="number" min={2} max={8} step={1}
                 value={ditherLevels}
@@ -220,10 +233,11 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
           </div>
         )}
         <div style={S.row}>
-          <label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
             <input type="checkbox" checked={invertHeight}
               onChange={(e) => set('invertHeight', e.target.checked)} />
             Invert height (light = thick)
+            <InfoTooltip text="Reverse the brightness-to-thickness mapping — use if your print appears inverted when backlit" />
           </label>
         </div>
       </div>

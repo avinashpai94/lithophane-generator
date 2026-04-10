@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { processImage, getGrayscalePreview, applyContrastMode } from './modules/imageProcessor.js'
+import { processImage, getGrayscalePreview, applyContrastMode, analyzeHeightmap } from './modules/imageProcessor.js'
 import { generate, generateTwoColor } from './modules/meshGenerator.js'
 import { exportBinary }  from './modules/stlExporter.js'
 import { PreviewRenderer } from './modules/previewRenderer.js'
@@ -48,6 +48,7 @@ export default function App() {
   const [exportMode,       setExportMode]       = useState('standard') // 'standard' | 'twoColor'
   const [twoColorParams,   setTwoColorParams]   = useState(DEFAULT_TWO_COLOR_PARAMS)
   const [twoColorData,     setTwoColorData]     = useState(null) // { baseMesh, reliefMesh }
+  const [imageAnalysis,    setImageAnalysis]    = useState(null)
 
   const history = useHistory(20)
 
@@ -79,8 +80,14 @@ export default function App() {
     setGrayscalePreview(getGrayscalePreview(img, 300))
     setMeshData(null)
     setTwoColorData(null)
+    setImageAnalysis(null)
     history.clear()
     rendererRef.current?.resetFit()
+
+    // Analyse at a fixed small resolution — fast, independent of print params
+    const analysisRows = Math.max(2, Math.round(150 * (img.naturalHeight / img.naturalWidth)))
+    const analysisHeightmap = processImage(img, 150, analysisRows)
+    setImageAnalysis(analyzeHeightmap(analysisHeightmap))
 
     // Sync heightMM to image aspect ratio (keep widthMM, update height)
     setParams((p) => ({
@@ -289,7 +296,7 @@ export default function App() {
           borderRight: '1px solid var(--border)', overflowY: 'auto',
           background: 'var(--surface)',
         }}>
-          <ImageUploader onImageLoad={handleImageLoad} grayscalePreview={grayscalePreview} />
+          <ImageUploader onImageLoad={handleImageLoad} grayscalePreview={grayscalePreview} imageAnalysis={imageAnalysis} />
           <ParameterPanel
             params={params} setParams={setParams}
             sourceImage={sourceImage} onApply={handleApply}

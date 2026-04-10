@@ -6,6 +6,8 @@ import {
   floydSteinbergDither,
   applyContrastMode,
   analyzeHeightmap,
+  verdictFromAnalysis,
+  metricColor,
 } from '../src/modules/imageProcessor.js'
 
 /**
@@ -178,12 +180,10 @@ describe('ImageProcessor — analyzeHeightmap', () => {
   })
 
   // Test 15
-  it('half black, half white: tonalRange=1, stdDev≈0.5, darkRatio=0.5, brightRatio=0.5', () => {
-    const hm = makeHeightmap(10, 2, (c) => c < 10 ? 0.0 : 1.0)
-    // first row all 0.0, second row all 1.0
+  it('half black (0.0), half bright (1.0): tonalRange=1, stdDev≈0.5, darkRatio=0.5, brightRatio=0.5', () => {
     const hm2 = [
-      Array(10).fill(0.0),
-      Array(10).fill(1.0),
+      Array(10).fill(0.0),  // below 0.1 → dark
+      Array(10).fill(1.0),  // above 0.75 → bright
     ]
     const { tonalRange, stdDev, darkRatio, brightRatio } = analyzeHeightmap(hm2)
     expect(tonalRange).toBeCloseTo(1.0, 5)
@@ -216,10 +216,62 @@ describe('ImageProcessor — analyzeHeightmap', () => {
 
   // Test 18
   it('darkRatio and brightRatio: correct fractions for known distribution', () => {
-    // 4 dark (0.05), 6 mid (0.5), 2 bright (0.95) — 12 pixels total
-    const hm = [[0.05, 0.05, 0.05, 0.05, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.95, 0.95]]
+    // 4 dark (0.05, < 0.1), 6 mid (0.5), 2 bright (0.80, > 0.75) — 12 pixels total
+    const hm = [[0.05, 0.05, 0.05, 0.05, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.80, 0.80]]
     const { darkRatio, brightRatio } = analyzeHeightmap(hm)
     expect(darkRatio).toBeCloseTo(4 / 12, 5)
     expect(brightRatio).toBeCloseTo(2 / 12, 5)
+  })
+})
+
+describe('ImageProcessor — verdictFromAnalysis + metricColor', () => {
+  const good     = { tonalRange: 0.82, stdDev: 0.21, darkRatio: 0.18, brightRatio: 0.12 }
+  const goodLowBright = { tonalRange: 0.72, stdDev: 0.27, darkRatio: 0.49, brightRatio: 0.04 } // portrait-like
+  const marginal = { tonalRange: 0.60, stdDev: 0.13, darkRatio: 0.04, brightRatio: 0.04 }
+  const poorFlat = { tonalRange: 0.30, stdDev: 0.05, darkRatio: 0.00, brightRatio: 0.00 }
+  const poorBoth = { tonalRange: 0.80, stdDev: 0.20, darkRatio: 0.01, brightRatio: 0.01 } // both extremes missing
+
+  // Test 19
+  it('verdictFromAnalysis: good image → "Good candidate"', () => {
+    expect(verdictFromAnalysis(good).label).toBe('Good candidate')
+    expect(verdictFromAnalysis(good).color).toBe('#4ecca3')
+  })
+
+  // Test 20
+  it('verdictFromAnalysis: strong primary metrics override low bright ratio → "Good candidate"', () => {
+    expect(verdictFromAnalysis(goodLowBright).label).toBe('Good candidate')
+    expect(verdictFromAnalysis(goodLowBright).color).toBe('#4ecca3')
+  })
+
+  // Test 21
+  it('verdictFromAnalysis: weak primary metrics → "Marginal — low contrast"', () => {
+    expect(verdictFromAnalysis(marginal).label).toBe('Marginal — low contrast')
+    expect(verdictFromAnalysis(marginal).color).toBe('#e0a052')
+  })
+
+  // Test 22
+  it('verdictFromAnalysis: flat image → "Poor — check lighting"', () => {
+    expect(verdictFromAnalysis(poorFlat).label).toBe('Poor — check lighting')
+    expect(verdictFromAnalysis(poorFlat).color).toBe('#e05252')
+  })
+
+  // Test 23
+  it('verdictFromAnalysis: both dark and bright ratios near zero → "Poor — missing blacks and whites"', () => {
+    expect(verdictFromAnalysis(poorBoth).label).toBe('Poor — missing blacks and whites')
+    expect(verdictFromAnalysis(poorBoth).color).toBe('#e05252')
+  })
+
+  // Test 24
+  it('verdictFromAnalysis: excellent image → "Excellent candidate"', () => {
+    const excellent = { tonalRange: 0.92, stdDev: 0.30, darkRatio: 0.20, brightRatio: 0.15 }
+    expect(verdictFromAnalysis(excellent).label).toBe('Excellent candidate')
+    expect(verdictFromAnalysis(excellent).color).toBe('#a8e6cf')
+  })
+
+  // Test 23
+  it('metricColor: returns correct color for each band', () => {
+    expect(metricColor(0.80, 0.7, 0.5)).toBe('#4ecca3') // above good
+    expect(metricColor(0.60, 0.7, 0.5)).toBe('#e0a052') // between marginal and good
+    expect(metricColor(0.30, 0.7, 0.5)).toBe('#e05252') // below marginal
   })
 })

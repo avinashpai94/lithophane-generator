@@ -29,9 +29,9 @@ export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, exportMode, 
       <div style={S.sep} />
 
       {exportMode === 'twoColor' ? (
-        <button style={S.dlBtn} onClick={onDownload2Color} disabled={!canDownloadTwo}>↓ Download STL</button>
+        <button style={S.dlBtn} onClick={onDownload2Color} disabled={!canDownloadTwo} title="Export combined mesh as STL — assign filament by layer height in Bambu Studio">↓ Download STL</button>
       ) : (
-        <button style={S.dlBtn} onClick={onDownload} disabled={!canDownload}>↓ Download STL</button>
+        <button style={S.dlBtn} onClick={onDownload} disabled={!canDownload} title="Export mesh as binary STL file ready for slicing">↓ Download STL</button>
       )}
 
       {stats && (

@@ -166,9 +166,46 @@ export function analyzeHeightmap(heightmap) {
   const stdDev = Math.sqrt(flat.reduce((sum, v) => sum + (v - mean) ** 2, 0) / n)
 
   const darkRatio  = flat.filter(v => v < 0.1).length / n
-  const brightRatio = flat.filter(v => v > 0.9).length / n
+  const brightRatio = flat.filter(v => v > 0.75).length / n
 
   return { tonalRange, stdDev, darkRatio, brightRatio }
+}
+
+/**
+ * Derive a traffic-light verdict from analyzeHeightmap() output.
+ *
+ * @param {{ tonalRange, stdDev, darkRatio, brightRatio }} analysis
+ * @returns {{ label: string, color: string }}
+ */
+export function verdictFromAnalysis(analysis) {
+  const { tonalRange, stdDev, darkRatio, brightRatio } = analysis
+  // Primary metrics — determine printability
+  if (tonalRange < 0.5 || stdDev < 0.10)
+    return { label: 'Poor — check lighting', color: '#e05252' }
+  // Ratio checks — poor only if both extremes are missing entirely
+  if (darkRatio < 0.02 && brightRatio < 0.02)
+    return { label: 'Poor — missing blacks and whites', color: '#e05252' }
+  // Marginal only if primary metrics are weak — ratios are advisory
+  if (tonalRange < 0.7 || stdDev < 0.15)
+    return { label: 'Marginal — low contrast', color: '#e0a052' }
+  // Excellent: strong primary metrics + meaningful presence of both extremes
+  if (tonalRange > 0.85 && stdDev > 0.25 && darkRatio > 0.10 && brightRatio > 0.05)
+    return { label: 'Excellent candidate', color: '#a8e6cf' }
+  return { label: 'Good candidate', color: '#4ecca3' }
+}
+
+/**
+ * Map a metric value to a traffic-light color given good/marginal thresholds.
+ *
+ * @param {number} value
+ * @param {number} good      - value >= good → green
+ * @param {number} marginal  - value >= marginal → yellow, else red
+ * @returns {string} hex color
+ */
+export function metricColor(value, good, marginal) {
+  if (value >= good)     return '#4ecca3'
+  if (value >= marginal) return '#e0a052'
+  return '#e05252'
 }
 
 /**
