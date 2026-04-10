@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { generate, generateTwoColor } from '../src/modules/meshGenerator.js'
+import { generate, generateTwoColor, generatePlaque } from '../src/modules/meshGenerator.js'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -307,6 +307,92 @@ describe('MeshGenerator — Phase 8A (generateTwoColor)', () => {
       expect(minY).toBeCloseTo(0, 5)
       expect(maxY).toBeCloseTo(TWO_COLOR_PARAMS.heightMM, 5)
     }
+  })
+
+})
+
+// ---------------------------------------------------------------------------
+// Phase 11A — generatePlaque()
+// ---------------------------------------------------------------------------
+
+const PLAQUE_PARAMS = {
+  widthMM:        100,
+  heightMM:       100,
+  baseHeightMM:   1.2,
+  columnHeightMM: 0.8,
+  borderWidthMM:  4,
+}
+
+function isWatertight(mesh) {
+  const edgeMap = new Map()
+  const { faces } = mesh
+  for (let i = 0; i < faces.length; i += 3) {
+    for (let e = 0; e < 3; e++) {
+      const a = faces[i + e]
+      const b = faces[i + ((e + 1) % 3)]
+      const key = a < b ? `${a}_${b}` : `${b}_${a}`
+      edgeMap.set(key, (edgeMap.get(key) ?? 0) + 1)
+    }
+  }
+  return [...edgeMap.values()].every(count => count === 2)
+}
+
+describe('MeshGenerator — generatePlaque (Phase 11A)', () => {
+
+  it('baseMesh is watertight', () => {
+    const hm = makeHeightmap(10, 10, 0.5)
+    const { baseMesh } = generatePlaque(hm, PLAQUE_PARAMS)
+    expect(isWatertight(baseMesh)).toBe(true)
+  })
+
+  it('baseMesh Z range is [0, baseHeightMM]', () => {
+    const hm = makeHeightmap(10, 10, 0.5)
+    const { baseMesh } = generatePlaque(hm, PLAQUE_PARAMS)
+    const zVals = Array.from({ length: baseMesh.vertices.length / 3 }, (_, i) => baseMesh.vertices[i * 3 + 2])
+    expect(Math.min(...zVals)).toBeCloseTo(0, 5)
+    expect(Math.max(...zVals)).toBeCloseTo(PLAQUE_PARAMS.baseHeightMM, 5)
+  })
+
+  it('columnMesh Z range is [baseHeightMM, baseHeightMM + columnHeightMM]', () => {
+    const hm = makeHeightmap(10, 10, 0.0) // all dark
+    const { columnMesh } = generatePlaque(hm, PLAQUE_PARAMS)
+    const zVals = Array.from({ length: columnMesh.vertices.length / 3 }, (_, i) => columnMesh.vertices[i * 3 + 2])
+    expect(Math.min(...zVals)).toBeCloseTo(PLAQUE_PARAMS.baseHeightMM, 5)
+    expect(Math.max(...zVals)).toBeCloseTo(PLAQUE_PARAMS.baseHeightMM + PLAQUE_PARAMS.columnHeightMM, 5)
+  })
+
+  it('column count matches number of pixels < 0.5', () => {
+    // 4×4 grid: alternate dark/light in a checkerboard
+    const hm = Array.from({ length: 4 }, (_, r) =>
+      Array.from({ length: 4 }, (_, c) => (r + c) % 2 === 0 ? 0.0 : 1.0)
+    )
+    const darkCount = hm.flat().filter(v => v < 0.5).length // 8
+    const { columnMesh } = generatePlaque(hm, { ...PLAQUE_PARAMS, borderWidthMM: 0 })
+    const colCount = columnMesh.faces.length / 3 / 12 // 12 triangles per column
+    expect(colCount).toBe(darkCount)
+  })
+
+  it('all-white heightmap produces zero columns', () => {
+    const hm = makeHeightmap(10, 10, 1.0)
+    const { columnMesh } = generatePlaque(hm, PLAQUE_PARAMS)
+    expect(columnMesh.faces.length).toBe(0)
+    expect(columnMesh.vertices.length).toBe(0)
+  })
+
+  it('all-black heightmap produces columns for every non-border pixel', () => {
+    const hm = makeHeightmap(10, 10, 0.0)
+    const { columnMesh } = generatePlaque(hm, { ...PLAQUE_PARAMS, borderWidthMM: 0 })
+    const expectedColumns = 10 * 10
+    const colCount = columnMesh.faces.length / 3 / 12
+    expect(colCount).toBe(expectedColumns)
+  })
+
+  it('columnMesh face indices are all in bounds', () => {
+    const hm = makeHeightmap(8, 8, 0.0)
+    const { columnMesh } = generatePlaque(hm, { ...PLAQUE_PARAMS, borderWidthMM: 0 })
+    const vertexCount = columnMesh.vertices.length / 3
+    const outOfBounds = Array.from(columnMesh.faces).some(idx => idx >= vertexCount)
+    expect(outOfBounds).toBe(false)
   })
 
 })

@@ -243,6 +243,118 @@ function _buildBaseMesh(widthMM, heightMM, thickness) {
 }
 
 /**
+ * Generate a flat plaque mesh for normal-light (non-backlit) photo printing.
+ *
+ * Returns two meshes intended for 2-color printing:
+ *   baseMesh    — flat white base plate, W × H × baseHeightMM
+ *   columnMesh  — one box column per dark pixel (heightmap < 0.5), merged into
+ *                 a single mesh. Column height: baseHeightMM → baseHeightMM + columnHeightMM.
+ *
+ * Thresholding at 0.5 is applied internally — caller should pre-apply dithering
+ * (ditherLevels=2) so pixels are already near 0 or 1 for clean columns.
+ *
+ * @param {number[][]} heightmap
+ * @param {{ widthMM, heightMM, baseHeightMM, columnHeightMM, borderWidthMM }} params
+ * @returns {{ baseMesh: MeshData, columnMesh: MeshData }}
+ */
+export function generatePlaque(heightmap, params) {
+  const { widthMM, heightMM, baseHeightMM, columnHeightMM, borderWidthMM } = params
+
+  const rows = heightmap.length
+  const cols = heightmap[0].length
+
+  const x0 = borderWidthMM
+  const x1 = widthMM - borderWidthMM
+  const y0 = borderWidthMM
+  const y1 = heightMM - borderWidthMM
+  const pixelW = (x1 - x0) / cols
+  const pixelH = (y1 - y0) / rows
+
+  const zBot = baseHeightMM
+  const zTop = baseHeightMM + columnHeightMM
+
+  // Collect dark pixel positions
+  const darkPixels = []
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (heightmap[r][c] < 0.5) {
+        darkPixels.push({
+          xMin: x0 + c * pixelW,
+          xMax: x0 + (c + 1) * pixelW,
+          yMin: y0 + r * pixelH,
+          yMax: y0 + (r + 1) * pixelH,
+        })
+      }
+    }
+  }
+
+  return {
+    baseMesh:    _buildBaseMesh(widthMM, heightMM, baseHeightMM),
+    columnMesh:  _buildColumnMesh(darkPixels, zBot, zTop),
+  }
+}
+
+/**
+ * Merge an array of dark-pixel rectangles into a single column mesh.
+ * Each column is a watertight box with z ∈ [zBot, zTop].
+ *
+ * @param {{ xMin, xMax, yMin, yMax }[]} pixels
+ * @param {number} zBot
+ * @param {number} zTop
+ * @returns {{ vertices: Float32Array, faces: Uint32Array, normals: Float32Array }}
+ */
+function _buildColumnMesh(pixels, zBot, zTop) {
+  const n = pixels.length
+  if (n === 0) {
+    return {
+      vertices: new Float32Array(0),
+      faces:    new Uint32Array(0),
+      normals:  new Float32Array(0),
+    }
+  }
+
+  // 8 vertices and 12 triangles (36 indices) per column
+  const vertices = new Float32Array(n * 8 * 3)
+  const faces    = new Uint32Array(n * 12 * 3)
+
+  // Local face template (offsets into 8 vertices per column)
+  // CCW winding, outward normals — verified by cross product
+  const FACE_TEMPLATE = [
+    0,2,1,  1,2,3,   // bottom (-Z)
+    4,5,6,  5,7,6,   // top    (+Z)
+    0,1,4,  1,5,4,   // front  (-Y)
+    2,6,3,  3,6,7,   // back   (+Y)
+    0,4,2,  4,6,2,   // left   (-X)
+    1,3,5,  3,7,5,   // right  (+X)
+  ]
+
+  for (let i = 0; i < n; i++) {
+    const { xMin, xMax, yMin, yMax } = pixels[i]
+    const vBase = i * 8 * 3
+    const fBase = i * 12 * 3
+    const vOff  = i * 8
+
+    // 8 corners
+    vertices[vBase +  0] = xMin; vertices[vBase +  1] = yMin; vertices[vBase +  2] = zBot
+    vertices[vBase +  3] = xMax; vertices[vBase +  4] = yMin; vertices[vBase +  5] = zBot
+    vertices[vBase +  6] = xMin; vertices[vBase +  7] = yMax; vertices[vBase +  8] = zBot
+    vertices[vBase +  9] = xMax; vertices[vBase + 10] = yMax; vertices[vBase + 11] = zBot
+    vertices[vBase + 12] = xMin; vertices[vBase + 13] = yMin; vertices[vBase + 14] = zTop
+    vertices[vBase + 15] = xMax; vertices[vBase + 16] = yMin; vertices[vBase + 17] = zTop
+    vertices[vBase + 18] = xMin; vertices[vBase + 19] = yMax; vertices[vBase + 20] = zTop
+    vertices[vBase + 21] = xMax; vertices[vBase + 22] = yMax; vertices[vBase + 23] = zTop
+
+    // 36 indices (12 triangles), offset by vOff
+    for (let j = 0; j < 36; j++) {
+      faces[fBase + j] = FACE_TEMPLATE[j] + vOff
+    }
+  }
+
+  const normals = computeVertexNormals(vertices, faces, n * 8)
+  return { vertices, faces, normals }
+}
+
+/**
  * Compute per-vertex normals by accumulating and averaging adjacent face normals.
  */
 function computeVertexNormals(vertices, faces, vertexCount) {
