@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { processImage, getGrayscalePreview } from './modules/imageProcessor.js'
-import { generate }      from './modules/meshGenerator.js'
+import { generate, generateTwoColor } from './modules/meshGenerator.js'
 import { exportBinary }  from './modules/stlExporter.js'
 import { PreviewRenderer } from './modules/previewRenderer.js'
 import { useHistory }    from './hooks/useHistory.js'
@@ -8,6 +8,13 @@ import ImageUploader  from './components/ImageUploader.jsx'
 import ParameterPanel from './components/ParameterPanel.jsx'
 import PreviewPanel   from './components/PreviewPanel.jsx'
 import Toolbar        from './components/Toolbar.jsx'
+
+const DEFAULT_TWO_COLOR_PARAMS = {
+  baseThicknessMM: 0.6,
+  reliefHeightMM:  1.2,
+  baseColor:       '#222222',
+  reliefColor:     '#f0ead6',
+}
 
 const DEFAULT_PARAMS = {
   widthMM:        150,
@@ -21,10 +28,13 @@ const DEFAULT_PARAMS = {
 }
 
 export default function App() {
-  const [sourceImage,   setSourceImage]   = useState(null)
+  const [sourceImage,      setSourceImage]      = useState(null)
   const [grayscalePreview, setGrayscalePreview] = useState(null)
-  const [params,        setParams]        = useState(DEFAULT_PARAMS)
-  const [meshData,      setMeshData]      = useState(null)
+  const [params,           setParams]           = useState(DEFAULT_PARAMS)
+  const [meshData,         setMeshData]         = useState(null)
+  const [exportMode,       setExportMode]       = useState('standard') // 'standard' | 'twoColor'
+  const [twoColorParams,   setTwoColorParams]   = useState(DEFAULT_TWO_COLOR_PARAMS)
+  const [twoColorData,     setTwoColorData]     = useState(null) // { baseMesh, reliefMesh }
 
   const history = useHistory(20)
 
@@ -55,6 +65,7 @@ export default function App() {
     setSourceImage(img)
     setGrayscalePreview(getGrayscalePreview(img, 300))
     setMeshData(null)
+    setTwoColorData(null)
     history.clear()
     rendererRef.current?.resetFit()
 
@@ -88,36 +99,84 @@ export default function App() {
       ? processImage(sourceImage, cols, rows)
       : prev.heightmap
 
-    const meshParams = {
-      widthMM:       params.widthMM,
-      heightMM:      params.heightMM,
-      minThickness:  params.minThickness,
-      maxThickness:  params.maxThickness,
-      borderWidthMM: params.borderWidthMM,
-      invertHeight:  params.invertHeight,
+    if (exportMode === 'twoColor') {
+      const { baseMesh, reliefMesh } = generateTwoColor(heightmap, {
+        widthMM:         params.widthMM,
+        heightMM:        params.heightMM,
+        baseThicknessMM: twoColorParams.baseThicknessMM,
+        reliefHeightMM:  twoColorParams.reliefHeightMM,
+        borderWidthMM:   params.borderWidthMM,
+        invertHeight:    params.invertHeight,
+      })
+      // Single combined mesh for STL export — floor at Z=0, no interface gap
+      const singleExportMesh = generate(heightmap, {
+        widthMM:       params.widthMM,
+        heightMM:      params.heightMM,
+        minThickness:  twoColorParams.baseThicknessMM,
+        maxThickness:  twoColorParams.baseThicknessMM + twoColorParams.reliefHeightMM,
+        borderWidthMM: params.borderWidthMM,
+        invertHeight:  params.invertHeight,
+      })
+      setTwoColorData({ baseMesh, reliefMesh, singleExportMesh })
+      setMeshData(null)
+      rendererRef.current?.updateTwoColorMesh(baseMesh, reliefMesh, twoColorParams.baseColor, twoColorParams.reliefColor)
+      history.push({ params: { ...params }, heightmap, exportMode, twoColorParams: { ...twoColorParams } })
+    } else {
+      const mesh = generate(heightmap, {
+        widthMM:       params.widthMM,
+        heightMM:      params.heightMM,
+        minThickness:  params.minThickness,
+        maxThickness:  params.maxThickness,
+        borderWidthMM: params.borderWidthMM,
+        invertHeight:  params.invertHeight,
+      })
+      setMeshData(mesh)
+      setTwoColorData(null)
+      rendererRef.current?.updateMesh(mesh)
+      history.push({ params: { ...params }, heightmap, exportMode, twoColorParams: null })
     }
-
-    const mesh = generate(heightmap, meshParams)
-    setMeshData(mesh)
-    history.push({ params: { ...params }, heightmap })
-
-    rendererRef.current?.updateMesh(mesh)
-  }, [sourceImage, params, history])
+  }, [sourceImage, params, exportMode, twoColorParams, history])
 
   // ── Undo / Redo ──────────────────────────────────────────────────────────
   const restoreSnapshot = useCallback((snapshot) => {
     if (!snapshot) return
     setParams(snapshot.params)
-    const mesh = generate(snapshot.heightmap, {
-      widthMM:       snapshot.params.widthMM,
-      heightMM:      snapshot.params.heightMM,
-      minThickness:  snapshot.params.minThickness,
-      maxThickness:  snapshot.params.maxThickness,
-      borderWidthMM: snapshot.params.borderWidthMM,
-      invertHeight:  snapshot.params.invertHeight,
-    })
-    setMeshData(mesh)
-    rendererRef.current?.updateMesh(mesh)
+    if (snapshot.exportMode === 'twoColor' && snapshot.twoColorParams) {
+      setExportMode('twoColor')
+      setTwoColorParams(snapshot.twoColorParams)
+      const { baseMesh, reliefMesh } = generateTwoColor(snapshot.heightmap, {
+        widthMM:         snapshot.params.widthMM,
+        heightMM:        snapshot.params.heightMM,
+        baseThicknessMM: snapshot.twoColorParams.baseThicknessMM,
+        reliefHeightMM:  snapshot.twoColorParams.reliefHeightMM,
+        borderWidthMM:   snapshot.params.borderWidthMM,
+        invertHeight:    snapshot.params.invertHeight,
+      })
+      const singleExportMesh = generate(snapshot.heightmap, {
+        widthMM:       snapshot.params.widthMM,
+        heightMM:      snapshot.params.heightMM,
+        minThickness:  snapshot.twoColorParams.baseThicknessMM,
+        maxThickness:  snapshot.twoColorParams.baseThicknessMM + snapshot.twoColorParams.reliefHeightMM,
+        borderWidthMM: snapshot.params.borderWidthMM,
+        invertHeight:  snapshot.params.invertHeight,
+      })
+      setTwoColorData({ baseMesh, reliefMesh, singleExportMesh })
+      setMeshData(null)
+      rendererRef.current?.updateTwoColorMesh(baseMesh, reliefMesh, snapshot.twoColorParams.baseColor, snapshot.twoColorParams.reliefColor)
+    } else {
+      setExportMode('standard')
+      const mesh = generate(snapshot.heightmap, {
+        widthMM:       snapshot.params.widthMM,
+        heightMM:      snapshot.params.heightMM,
+        minThickness:  snapshot.params.minThickness,
+        maxThickness:  snapshot.params.maxThickness,
+        borderWidthMM: snapshot.params.borderWidthMM,
+        invertHeight:  snapshot.params.invertHeight,
+      })
+      setMeshData(mesh)
+      setTwoColorData(null)
+      rendererRef.current?.updateMesh(mesh)
+    }
   }, [])
 
   const handleUndo = useCallback(() => {
@@ -145,6 +204,16 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [handleUndo, handleRedo])
 
+  // ── Live color preview update (no Apply needed for color-only changes) ───
+  useEffect(() => {
+    if (exportMode === 'twoColor' && twoColorData) {
+      rendererRef.current?.updateTwoColorMesh(
+        twoColorData.baseMesh, twoColorData.reliefMesh,
+        twoColorParams.baseColor, twoColorParams.reliefColor,
+      )
+    }
+  }, [twoColorParams.baseColor, twoColorParams.reliefColor]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // ── STL download ─────────────────────────────────────────────────────────
   const handleDownload = useCallback(() => {
     if (!meshData) return
@@ -155,17 +224,37 @@ export default function App() {
     URL.revokeObjectURL(url)
   }, [meshData])
 
-  const stats = meshData ? {
-    triangles: meshData.faces.length / 3,
-    stlSizeMB: ((84 + 50 * (meshData.faces.length / 3)) / 1e6).toFixed(2),
-  } : null
+  const handleDownload2Color = useCallback(() => {
+    if (!twoColorData) return
+    const blob = exportBinary(twoColorData.singleExportMesh)
+    const url  = URL.createObjectURL(blob)
+    const a    = Object.assign(document.createElement('a'), { href: url, download: 'lithophane_2color.stl' })
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [twoColorData])
+
+  const stats = twoColorData
+    ? {
+        triangles:    twoColorData.singleExportMesh.faces.length / 3,
+        stlSizeMB:   ((84 + 50 * (twoColorData.singleExportMesh.faces.length / 3)) / 1e6).toFixed(2),
+        twoColor:     true,
+        transitionMM: twoColorParams.baseThicknessMM.toFixed(1),
+      }
+    : meshData
+    ? {
+        triangles:  meshData.faces.length / 3,
+        stlSizeMB: ((84 + 50 * (meshData.faces.length / 3)) / 1e6).toFixed(2),
+      }
+    : null
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <Toolbar
         onUndo={handleUndo}   canUndo={history.canUndo}
         onRedo={handleRedo}   canRedo={history.canRedo}
-        onDownload={handleDownload} canDownload={!!meshData}
+        exportMode={exportMode}
+        onDownload={handleDownload}         canDownload={!!meshData}
+        onDownload2Color={handleDownload2Color} canDownloadTwo={!!twoColorData}
         stats={stats}
         historyPos={history.position.total > 0
           ? `${history.position.current + 1}/${history.position.total}`
@@ -184,11 +273,13 @@ export default function App() {
           <ParameterPanel
             params={params} setParams={setParams}
             sourceImage={sourceImage} onApply={handleApply}
+            exportMode={exportMode} onExportModeChange={setExportMode}
+            twoColorParams={twoColorParams} setTwoColorParams={setTwoColorParams}
           />
         </div>
 
         {/* Preview */}
-        <PreviewPanel containerRef={previewContainerRef} hasMesh={!!meshData} />
+        <PreviewPanel containerRef={previewContainerRef} hasMesh={!!meshData || !!twoColorData} />
       </div>
     </div>
   )

@@ -11,6 +11,11 @@ const S = {
   info:    { fontSize: 11, color: 'var(--text-dim)' },
   warn:    { fontSize: 11, color: 'var(--warn)', marginTop: 2 },
   applyBtn:{ background: 'var(--accent)', color: '#0a1628', fontWeight: 700, width: '100%', padding: '8px 0', fontSize: 13 },
+  toggleWrap: { display: 'flex', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)' },
+  toggleActive:   { flex: 1, padding: '5px 0', fontSize: 12, fontWeight: 600, background: 'var(--accent)', color: '#0a1628', border: 'none', cursor: 'pointer' },
+  toggleInactive: { flex: 1, padding: '5px 0', fontSize: 12, fontWeight: 400, background: 'transparent', color: 'var(--text-dim)', border: 'none', cursor: 'pointer' },
+  colorRow: { display: 'flex', alignItems: 'center', gap: 8 },
+  colorSwatch: { width: 32, height: 24, borderRadius: 4, border: '1px solid var(--border)', cursor: 'pointer', padding: 0 },
 }
 
 function SliderRow({ label, value, min, max, step = 0.1, onChange, unit = 'mm', decimals = 1 }) {
@@ -34,7 +39,7 @@ function SliderRow({ label, value, min, max, step = 0.1, onChange, unit = 'mm', 
   )
 }
 
-export default function ParameterPanel({ params, setParams, sourceImage, onApply }) {
+export default function ParameterPanel({ params, setParams, sourceImage, onApply, exportMode, onExportModeChange, twoColorParams, setTwoColorParams }) {
   const {
     widthMM, heightMM, lockAspectRatio,
     minThickness, maxThickness,
@@ -74,8 +79,26 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
     }
   }
 
+  function setTC(key, value) {
+    setTwoColorParams((p) => ({ ...p, [key]: value }))
+  }
+
   return (
     <div style={S.root}>
+
+      {/* Mode toggle */}
+      <div style={S.toggleWrap}>
+        <button
+          style={exportMode === 'standard' ? S.toggleActive : S.toggleInactive}
+          onClick={() => onExportModeChange('standard')}>
+          Standard
+        </button>
+        <button
+          style={exportMode === 'twoColor' ? S.toggleActive : S.toggleInactive}
+          onClick={() => onExportModeChange('twoColor')}>
+          2-Color
+        </button>
+      </div>
 
       <div style={S.section}>
         <div style={S.heading}>Dimensions</div>
@@ -94,11 +117,47 @@ export default function ParameterPanel({ params, setParams, sourceImage, onApply
 
       <div style={S.section}>
         <div style={S.heading}>Thickness</div>
-        <SliderRow label="Min (light)" value={minThickness} min={0.4} max={maxThickness - 0.1} step={0.1}
-          onChange={(v) => set('minThickness', v)} />
-        <SliderRow label="Max (dark)"  value={maxThickness} min={minThickness + 0.1} max={6} step={0.1}
-          onChange={(v) => set('maxThickness', v)} />
+        {exportMode === 'twoColor' ? (<>
+          <SliderRow label="Base" value={twoColorParams.baseThicknessMM} min={0.4} max={3} step={0.1}
+            onChange={(v) => setTC('baseThicknessMM', v)} />
+          <SliderRow label="Relief height" value={twoColorParams.reliefHeightMM} min={0.2} max={4} step={0.1}
+            onChange={(v) => setTC('reliefHeightMM', v)} />
+        </>) : (<>
+          <SliderRow label="Min (light)" value={minThickness} min={0.4} max={maxThickness - 0.1} step={0.1}
+            onChange={(v) => set('minThickness', v)} />
+          <SliderRow label="Max (dark)"  value={maxThickness} min={minThickness + 0.1} max={6} step={0.1}
+            onChange={(v) => set('maxThickness', v)} />
+        </>)}
       </div>
+
+      {exportMode === 'twoColor' && (<>
+        <div style={S.divider} />
+        <div style={S.section}>
+          <div style={S.heading}>Colors (preview only)</div>
+          <div style={S.colorRow}>
+            <span style={S.labelTxt}>Background</span>
+            <input type="color" style={S.colorSwatch} value={twoColorParams.baseColor}
+              onChange={(e) => setTC('baseColor', e.target.value)} />
+            <span style={{ ...S.info, fontFamily: 'monospace' }}>{twoColorParams.baseColor}</span>
+          </div>
+          <div style={S.colorRow}>
+            <span style={S.labelTxt}>Relief</span>
+            <input type="color" style={S.colorSwatch} value={twoColorParams.reliefColor}
+              onChange={(e) => setTC('reliefColor', e.target.value)} />
+            <span style={{ ...S.info, fontFamily: 'monospace' }}>{twoColorParams.reliefColor}</span>
+          </div>
+          <div style={S.info}>Preview only — assign filament in Bambu Studio.</div>
+        </div>
+        <div style={{ ...S.section, background: 'rgba(78,204,163,0.08)', borderRadius: 6, padding: 8 }}>
+          <div style={{ ...S.info, lineHeight: 1.6 }}>
+            <strong style={{ color: 'var(--accent)' }}>Bambu Studio workflow:</strong><br/>
+            1. Import STL → add 2nd filament<br/>
+            2. Right-click object → <em>Change Filament by Layer Height</em><br/>
+            3. Set split at <strong>{twoColorParams.baseThicknessMM.toFixed(1)}mm</strong><br/>
+            4. Below = background · Above = relief
+          </div>
+        </div>
+      </>)}
 
       <div style={S.divider} />
 

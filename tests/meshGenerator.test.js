@@ -272,18 +272,21 @@ describe('MeshGenerator — Phase 8A (generateTwoColor)', () => {
   })
 
   // Test 8A-4
-  it('reliefMesh Z range is [baseThicknessMM, baseThicknessMM + reliefHeightMM]', () => {
+  // reliefMesh floor is offset by Z_INTERFACE_GAP (0.01mm) above the base top face
+  // to prevent Bambu Studio's "conflicting gcode paths" error on the shared Z plane.
+  it('reliefMesh Z range is [baseThicknessMM + gap, baseThicknessMM + gap + reliefHeightMM]', () => {
     const hm = makeHeightmap(4, 3)
     const { reliefMesh } = generateTwoColor(hm, TWO_COLOR_PARAMS)
     const { vertices } = reliefMesh
     const { baseThicknessMM, reliefHeightMM } = TWO_COLOR_PARAMS
+    const Z_GAP = 0.01
     let minZ = Infinity, maxZ = -Infinity
     for (let i = 2; i < vertices.length; i += 3) {
       minZ = Math.min(minZ, vertices[i])
       maxZ = Math.max(maxZ, vertices[i])
     }
-    expect(minZ).toBeCloseTo(baseThicknessMM, 5)
-    expect(maxZ).toBeCloseTo(baseThicknessMM + reliefHeightMM, 5)
+    expect(minZ).toBeCloseTo(baseThicknessMM + Z_GAP, 4)
+    expect(maxZ).toBeCloseTo(baseThicknessMM + Z_GAP + reliefHeightMM, 4)
   })
 
   // Test 8A-5

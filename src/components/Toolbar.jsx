@@ -12,7 +12,7 @@ const S = {
   dlBtn:    { background: 'var(--accent)', color: '#0a1628', fontWeight: 700 },
 }
 
-export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, onDownload, canDownload, stats, historyPos }) {
+export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, exportMode, onDownload, canDownload, onDownload2Color, canDownloadTwo, stats, historyPos }) {
   return (
     <div style={S.root}>
       <span style={S.title}>Lithophane</span>
@@ -28,13 +28,17 @@ export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, onDownload, 
 
       <div style={S.sep} />
 
-      <button style={S.dlBtn} onClick={onDownload} disabled={!canDownload}>
-        ↓ Download STL
-      </button>
+      {exportMode === 'twoColor' ? (
+        <button style={S.dlBtn} onClick={onDownload2Color} disabled={!canDownloadTwo}>↓ Download STL</button>
+      ) : (
+        <button style={S.dlBtn} onClick={onDownload} disabled={!canDownload}>↓ Download STL</button>
+      )}
 
       {stats && (
         <span style={S.stats}>
-          {stats.triangles.toLocaleString()} triangles &nbsp;·&nbsp; {stats.stlSizeMB} MB
+          {stats.triangles.toLocaleString()} triangles
+          {` · ${stats.stlSizeMB} MB`}
+          {stats.twoColor && ` · split at ${stats.transitionMM}mm`}
           {historyPos != null && ` · history ${historyPos}`}
         </span>
       )}

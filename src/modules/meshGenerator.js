@@ -166,7 +166,11 @@ export function generate(heightmap, params) {
  *
  * The two meshes share the same XY footprint but have non-overlapping Z ranges:
  *   baseMesh:   Z ∈ [0, baseThicknessMM]
- *   reliefMesh: Z ∈ [baseThicknessMM, baseThicknessMM + reliefHeightMM]
+ *   reliefMesh: Z ∈ [baseThicknessMM + Z_INTERFACE_GAP, baseThicknessMM + Z_INTERFACE_GAP + reliefHeightMM]
+ *
+ * Z_INTERFACE_GAP (0.01mm) prevents Bambu Studio's "conflicting gcode paths" error
+ * that occurs when two objects share an exact Z plane. The gap is smaller than any
+ * practical layer height so it has no effect on the print.
  *
  * @param {number[][]} heightmap
  * @param {{
@@ -179,19 +183,22 @@ export function generate(heightmap, params) {
  * }} params
  * @returns {{ baseMesh: MeshData, reliefMesh: MeshData }}
  */
+const Z_INTERFACE_GAP = 0.01  // mm — prevents coplanar-face conflict in Bambu Studio
+
 export function generateTwoColor(heightmap, params) {
   const { widthMM, heightMM, baseThicknessMM, reliefHeightMM, borderWidthMM, invertHeight } = params
+  const floorZ = baseThicknessMM + Z_INTERFACE_GAP
 
   return {
     baseMesh:   _buildBaseMesh(widthMM, heightMM, baseThicknessMM),
     reliefMesh: generate(heightmap, {
       widthMM,
       heightMM,
-      minThickness: baseThicknessMM,
-      maxThickness: baseThicknessMM + reliefHeightMM,
+      minThickness: floorZ,
+      maxThickness: floorZ + reliefHeightMM,
       borderWidthMM,
       invertHeight,
-      floorZ: baseThicknessMM,
+      floorZ,
     }),
   }
 }
