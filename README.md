@@ -50,7 +50,7 @@ The built output is in `dist/` — serve it with any static file host (Netlify, 
 npx vitest run
 ```
 
-54 tests across image processing, mesh generation, STL export, and history management.
+62 tests across image processing, mesh generation, STL export, and history management.
 
 ## Recommended print settings (Bambu Lab)
 
