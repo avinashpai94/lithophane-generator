@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { processImage, getGrayscalePreview, applyContrastMode, analyzeHeightmap } from './modules/imageProcessor.js'
+import { processImage, getGrayscalePreview, applyContrastMode, analyzeHeightmap, verdictFromAnalysis } from './modules/imageProcessor.js'
 import { generate, generateTwoColor, generatePlaque } from './modules/meshGenerator.js'
 import { exportBinary }  from './modules/stlExporter.js'
 import { PreviewRenderer } from './modules/previewRenderer.js'
@@ -8,6 +8,8 @@ import ImageUploader  from './components/ImageUploader.jsx'
 import ParameterPanel from './components/ParameterPanel.jsx'
 import PreviewPanel   from './components/PreviewPanel.jsx'
 import Toolbar        from './components/Toolbar.jsx'
+import GalleryModal   from './components/GalleryModal.jsx'
+import { makeCacheKey, getScore, setScore } from './modules/scoreCache.js'
 
 const DEFAULT_PLAQUE_PARAMS = {
   baseHeightMM:   1.2,
@@ -58,11 +60,15 @@ export default function App() {
   const [plaqueParams,     setPlaqueParams]     = useState(DEFAULT_PLAQUE_PARAMS)
   const [plaqueData,       setPlaqueData]       = useState(null) // { baseMesh, columnMesh }
   const [imageAnalysis,    setImageAnalysis]    = useState(null)
+  const [galleryOpen,      setGalleryOpen]      = useState(false)
+  const [galleryResults,   setGalleryResults]   = useState([])   // { file, score, thumbnail }[]
+  const [galleryProgress,  setGalleryProgress]  = useState({ done: 0, total: 0, cached: 0 })
 
   const history = useHistory(20)
 
   const previewContainerRef = useRef(null)
   const rendererRef         = useRef(null)
+  const scanInputRef        = useRef(null)
 
   // ── Init Three.js renderer once the container div mounts ────────────────
   useEffect(() => {
@@ -296,6 +302,77 @@ export default function App() {
     }
   }, [plaqueParams.baseColor, plaqueParams.columnColor]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Folder scan + gallery ────────────────────────────────────────────────
+  const handleScanFolder = useCallback(async (fileList) => {
+    const files = Array.from(fileList).filter(f => f.type.startsWith('image/'))
+    if (files.length === 0) return
+
+    setGalleryResults([])
+    setGalleryProgress({ done: 0, total: files.length, cached: 0 })
+    setGalleryOpen(true)
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const key    = makeCacheKey(file)
+      const cached = getScore(key)
+
+      let score
+      if (cached) {
+        score = cached
+      } else {
+        score = await new Promise((resolve) => {
+          const url = URL.createObjectURL(file)
+          const img = new Image()
+          img.onload = () => {
+            try {
+              const cols = 150
+              const rows = Math.max(2, Math.round(cols * (img.naturalHeight / img.naturalWidth)))
+              const heightmap = processImage(img, cols, rows)
+              const analysis  = analyzeHeightmap(heightmap)
+              const verdict   = verdictFromAnalysis(analysis)
+              const result    = { ...analysis, verdict: verdict.label, color: verdict.color }
+              setScore(key, result)
+              resolve(result)
+            } catch {
+              resolve(null)
+            } finally {
+              URL.revokeObjectURL(url)
+            }
+          }
+          img.onerror = () => { URL.revokeObjectURL(url); resolve(null) }
+          img.src = url
+        })
+      }
+
+      const thumbnail = URL.createObjectURL(file)
+      const wasCached = !!cached
+      setGalleryResults(prev => [...prev, { file, score, thumbnail }])
+      setGalleryProgress(prev => ({
+        ...prev,
+        done:   i + 1,
+        cached: prev.cached + (wasCached ? 1 : 0),
+      }))
+    }
+  }, [])
+
+  const handleCloseGallery = useCallback(() => {
+    setGalleryResults(prev => { prev.forEach(r => URL.revokeObjectURL(r.thumbnail)); return [] })
+    setGalleryOpen(false)
+    // Reset the hidden input so the same folder can be re-scanned
+    if (scanInputRef.current) scanInputRef.current.value = ''
+  }, [])
+
+  const handleSelectFromGallery = useCallback((file) => {
+    setGalleryResults(prev => { prev.forEach(r => URL.revokeObjectURL(r.thumbnail)); return [] })
+    setGalleryOpen(false)
+    if (scanInputRef.current) scanInputRef.current.value = ''
+
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => { handleImageLoad(img); URL.revokeObjectURL(url) }
+    img.src = url
+  }, [handleImageLoad])
+
   // ── STL download ─────────────────────────────────────────────────────────
   const handleDownloadPlaqueBase = useCallback(() => {
     if (!plaqueData) return
@@ -360,6 +437,27 @@ export default function App() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+      {/* Hidden folder picker input */}
+      <input
+        ref={scanInputRef}
+        type="file"
+        // @ts-ignore — webkitdirectory is non-standard but universally supported
+        webkitdirectory="true"
+        multiple
+        accept="image/*"
+        style={{ display: 'none' }}
+        onChange={(e) => handleScanFolder(e.target.files)}
+      />
+
+      {galleryOpen && (
+        <GalleryModal
+          results={galleryResults}
+          progress={galleryProgress}
+          onClose={handleCloseGallery}
+          onSelectImage={handleSelectFromGallery}
+        />
+      )}
+
       <Toolbar
         onUndo={handleUndo}   canUndo={history.canUndo}
         onRedo={handleRedo}   canRedo={history.canRedo}
@@ -367,6 +465,7 @@ export default function App() {
         onDownload={handleDownload}                     canDownload={!!meshData}
         onDownload2Color={handleDownload2Color}         canDownloadTwo={!!twoColorData}
         onDownloadPlaqueBase={handleDownloadPlaqueBase} onDownloadPlaqueColumns={handleDownloadPlaqueColumns} canDownloadPlaque={!!plaqueData}
+        onScanFolder={() => scanInputRef.current?.click()}
         stats={stats}
         historyPos={history.position.total > 0
           ? `${history.position.current + 1}/${history.position.total}`

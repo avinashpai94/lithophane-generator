@@ -12,7 +12,7 @@ const S = {
   dlBtn:    { background: 'var(--accent)', color: '#0a1628', fontWeight: 700 },
 }
 
-export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, exportMode, onDownload, canDownload, onDownload2Color, canDownloadTwo, onDownloadPlaqueBase, onDownloadPlaqueColumns, canDownloadPlaque, stats, historyPos }) {
+export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, exportMode, onDownload, canDownload, onDownload2Color, canDownloadTwo, onDownloadPlaqueBase, onDownloadPlaqueColumns, canDownloadPlaque, onScanFolder, stats, historyPos }) {
   return (
     <div style={S.root}>
       <span style={S.title}>Lithophane</span>
@@ -24,6 +24,12 @@ export default function Toolbar({ onUndo, onRedo, canUndo, canRedo, exportMode, 
       </button>
       <button style={S.undoBtn} onClick={onRedo} disabled={!canRedo} title="Redo (⌘⇧Z)">
         ↪ Redo
+      </button>
+
+      <div style={S.sep} />
+
+      <button style={S.undoBtn} onClick={onScanFolder} title="Scan a folder of photos and score each one for lithophane suitability">
+        ⊞ Scan Folder
       </button>
 
       <div style={S.sep} />
